@@ -70,8 +70,13 @@ database/                 # Supabase persistence layer
 
 ## Supported Data Sources
 
-- **CGM Data**: FreeStyle Libre 3 CSV exports
-- **Food Logs**: Cronometer daily export (CSV format)
+### Cronometer
+- [cronometer.com/#account](https://cronometer.com/#account)
+- Account Data > Export Data > Export Food & Recipe Entries
+
+### LibreView
+- [libreview.com/glucosereports](https://libreview.com/glucosereports)
+- Download Glucose Data
 
 ## Tech Stack
 
