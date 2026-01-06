@@ -95,7 +95,7 @@ if libre_file and crono_file and glucose_df is not None and food_df is not None:
 
         with st.expander("📈 Meal-Glucose Events", expanded=True):
             display_df = merged_data[['meal_time', 'group', 'food_count', 'carbs_g', 'protein_g', 'peak_glucose']].copy()
-            display_df['meal_time'] = display_df['meal_time'].dt.strftime('%Y-%m-%d %H:%M')
+            display_df['meal_time'] = display_df['meal_time'].dt.strftime('%Y-%m-%d %I:%M %p')
             st.dataframe(display_df, use_container_width=True)
 
     # Show crash events
@@ -108,7 +108,7 @@ if libre_file and crono_file and glucose_df is not None and food_df is not None:
                 with col1:
                     start = crash['start_time']
                     if hasattr(start, 'strftime'):
-                        start = start.strftime('%H:%M')
+                        start = start.strftime('%I:%M %p').lstrip('0')
                     st.metric(f"Crash #{i}", start)
                 with col2:
                     st.metric("Drop", f"{crash['drop_magnitude']:.1f} mg/dL")

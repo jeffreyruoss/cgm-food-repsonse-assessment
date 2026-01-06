@@ -58,10 +58,39 @@ if glucose_df is None or glucose_df.empty:
 st.sidebar.header("🗓️ Date Range")
 min_date = glucose_df['timestamp'].min().date()
 max_date = glucose_df['timestamp'].max().date()
+today = datetime.now().date()
+
+# Date range shortcut buttons
+row1_cols = st.sidebar.columns(2)
+with row1_cols[0]:
+    if st.button("Today", use_container_width=True):
+        st.session_state['date_range'] = (today, today)
+        st.rerun()
+with row1_cols[1]:
+    if st.button("Yesterday", use_container_width=True):
+        yesterday = today - timedelta(days=1)
+        st.session_state['date_range'] = (yesterday, yesterday)
+        st.rerun()
+
+row2_cols = st.sidebar.columns(2)
+with row2_cols[0]:
+    if st.button("Last 7 Days", use_container_width=True):
+        st.session_state['date_range'] = (today - timedelta(days=6), today)
+        st.rerun()
+with row2_cols[1]:
+    if st.button("Last 30 Days", use_container_width=True):
+        st.session_state['date_range'] = (today - timedelta(days=29), today)
+        st.rerun()
+
+# Get date range from session state or default to all data
+default_range = st.session_state.get('date_range', (min_date, max_date))
+# Clamp to available data range
+default_start = max(min_date, min(default_range[0], max_date))
+default_end = max(min_date, min(default_range[1], max_date))
 
 date_range = st.sidebar.date_input(
     "Select date range",
-    value=(min_date, max_date),
+    value=(default_start, default_end),
     min_value=min_date,
     max_value=max_date
 )
@@ -121,7 +150,7 @@ fig.add_trace(
         mode='lines',
         name='Glucose',
         line=dict(color='#1f77b4', width=1.5),
-        hovertemplate='%{x}<br>Glucose: %{y:.0f} mg/dL<extra></extra>'
+        hovertemplate='%{x|%b %d, %I:%M %p}<br>Glucose: %{y:.0f} mg/dL<extra></extra>'
     ),
     row=1, col=1
 )
@@ -155,7 +184,23 @@ if food_df is not None and not food_df.empty:
             x=food['timestamp'],
             line_dash="dot",
             line_color="green",
-            opacity=0.5,
+            opacity=0.3,
+            row=1, col=1
+        )
+
+    # Add scatter markers at top for food names on hover
+    if not filtered_food.empty:
+        y_max = filtered_glucose['glucose_mg_dl'].max() + 10
+        fig.add_trace(
+            go.Scatter(
+                x=filtered_food['timestamp'],
+                y=[y_max] * len(filtered_food),
+                mode='markers',
+                name='Foods',
+                marker=dict(color='green', size=8, symbol='triangle-down'),
+                text=filtered_food['food_name'],
+                hovertemplate='%{x|%I:%M %p}<br>%{text}<extra></extra>'
+            ),
             row=1, col=1
         )
 
@@ -168,7 +213,7 @@ if 'velocity_smoothed' in filtered_glucose.columns:
             mode='lines',
             name='Velocity',
             line=dict(color='purple', width=1),
-            hovertemplate='%{x}<br>Velocity: %{y:.2f} mg/dL/min<extra></extra>'
+            hovertemplate='%{x|%b %d, %I:%M %p}<br>Velocity: %{y:.2f} mg/dL/min<extra></extra>'
         ),
         row=2, col=1
     )
@@ -186,7 +231,7 @@ fig.update_layout(
 
 fig.update_yaxes(title_text="mg/dL", row=1, col=1)
 fig.update_yaxes(title_text="mg/dL/min", row=2, col=1)
-fig.update_xaxes(title_text="Time", row=2, col=1)
+fig.update_xaxes(title_text="Time", row=2, col=1, tickformat='%I:%M %p')  # 12-hour format
 
 st.plotly_chart(fig, use_container_width=True)
 
@@ -248,7 +293,7 @@ if food_df is not None and not food_df.empty:
                     analysis = analyze_meal_response(meal.to_dict()) if has_any_data else {}
 
                     meal_time = meal['meal_time']
-                    meal_time_str = meal_time.strftime('%Y-%m-%d %H:%M')
+                    meal_time_str = meal_time.strftime('%Y-%m-%d %I:%M %p')
                     group_name = meal.get('group', 'Unknown')
                     food_count = meal.get('food_count', 0)
 
@@ -258,7 +303,7 @@ if food_df is not None and not food_df.empty:
                     # Calculate max drop and velocity from glucose readings
                     max_drop_velocity = 0
                     total_drop = 0
-                    drop_duration_minutes = 0
+                    drop_duration_minutes = None  # None means no data available
                     if glucose_readings and len(glucose_readings) > 1:
                         readings_df = pd.DataFrame(glucose_readings)
                         if 'velocity_smoothed' in readings_df.columns:
@@ -276,8 +321,9 @@ if food_df is not None and not food_df.empty:
                             nadir_glucose = readings_df.loc[nadir_idx, 'glucose_mg_dl']
                             nadir_time = readings_df.loc[nadir_idx, 'minutes_from_meal']
                             total_drop = peak_glucose - nadir_glucose
-                            drop_duration_minutes = nadir_time - peak_time
+                            drop_duration_minutes = nadir_time - peak_time  # Now has valid data
                         else:
+                            # Peak is at or near end of data - can't calculate drop duration
                             min_glucose = readings_df['glucose_mg_dl'].min()
                             total_drop = peak_glucose - min_glucose
 
@@ -308,7 +354,7 @@ if food_df is not None and not food_df.empty:
 
                     # Get meal group icon
                     meal_icon = MEAL_ICONS.get(group_name, DEFAULT_MEAL_ICON)
-                    meal_time_display = meal_time.strftime('%H:%M')  # Just time, date is in heading
+                    meal_time_display = meal_time.strftime('%I:%M %p').lstrip('0')  # 12-hour format, strip leading zero
 
                     with st.expander(f"{risk_emoji} {meal_time_display} {meal_icon} {group_name} ({food_count} foods) - {risk_text} {ai_icon}", expanded=False):
                         # Show data status message for incomplete data
@@ -323,10 +369,25 @@ if food_df is not None and not food_df.empty:
                                 time_str = f"{mins_left} min"
                             st.info(f"🔄 Partial data: {int(data_coverage_minutes)} min of 180 min. Full data available in ~{time_str} after CGM sync.")
 
-                        # Show foods in this meal
-                        foods_list = meal.get('foods', [])
-                        if foods_list:
-                            st.markdown(f"**Foods:** {', '.join(foods_list)}")
+                        # Show foods in this meal with timestamps in a grid
+                        foods_with_times = meal.get('foods_with_times', [])
+                        if foods_with_times:
+                            st.markdown("**🍽️ Foods in this meal:**")
+                            # Create grid with 3 columns
+                            food_cols = st.columns(3)
+                            for i, food_item in enumerate(foods_with_times):
+                                with food_cols[i % 3]:
+                                    food_time = food_item['timestamp']
+                                    if hasattr(food_time, 'strftime'):
+                                        time_str = food_time.strftime('%I:%M %p').lstrip('0')
+                                    else:
+                                        time_str = str(food_time)
+                                    st.markdown(f"• **{time_str}** - {food_item['name']}")
+                        else:
+                            # Fallback to simple list if no timestamps available
+                            foods_list = meal.get('foods', [])
+                            if foods_list:
+                                st.markdown(f"**Foods:** {', '.join(foods_list)}")
 
                         col1, col2, col3, col4 = st.columns(4)
 
@@ -336,24 +397,27 @@ if food_df is not None and not food_df.empty:
                                 st.metric("Baseline", f"{analysis.get('baseline_glucose', 0):.0f} mg/dL")
                                 st.metric("Peak", f"{analysis.get('peak_glucose', 0):.0f} mg/dL",
                                           delta=f"+{analysis.get('glucose_rise', 0):.0f}")
-                                st.metric("Time to Peak", f"{analysis.get('time_to_peak_minutes', 0):.0f} min")
+                                st.metric("Duration of Rise", f"{analysis.get('time_to_peak_minutes', 0):.0f} min")
                             else:
                                 st.metric("Baseline", "—")
                                 st.metric("Peak", "—")
-                                st.metric("Time to Peak", "—")
+                                st.metric("Duration of Rise", "—")
 
                         with col2:
                             st.markdown("**📉 Drop**")
                             if has_any_data:
                                 st.metric("Total Drop", f"{total_drop:.0f} mg/dL")
-                                st.metric("Time of Drop", f"{drop_duration_minutes:.0f} min")
+                                if drop_duration_minutes is not None:
+                                    st.metric("Duration of Drop", f"{drop_duration_minutes:.0f} min")
+                                else:
+                                    st.metric("Duration of Drop", "—")
                                 velocity_color = "🔴" if max_drop_velocity <= -2.0 else "🟠" if max_drop_velocity <= -1.5 else "🟢"
                                 st.metric("Max Drop Velocity", f"{velocity_color} {abs(max_drop_velocity):.2f} mg/dL/min")
                                 if analysis.get('crash_detected', False):
                                     st.metric("Crash at", f"{analysis.get('crash_start_minutes', 0):.0f} min")
                             else:
                                 st.metric("Total Drop", "—")
-                                st.metric("Time of Drop", "—")
+                                st.metric("Duration of Drop", "—")
                                 st.metric("Max Drop Velocity", "—")
 
                         with col3:
@@ -382,12 +446,14 @@ if food_df is not None and not food_df.empty:
                                 # Button to generate AI assessment
                                 if st.button(f"🤖 Generate AI Assessment", key=f"ai_btn_{meal_key}"):
                                     with st.spinner("Generating AI assessment..."):
+                                        # Get foods list for AI
+                                        foods_for_ai = meal.get('foods', [])
                                         # Prepare meal data for AI
                                         meal_data_for_ai = {
                                             'meal_key': meal_key,
                                             'meal_time': meal_time.isoformat(),
                                             'group_name': group_name,
-                                            'foods': foods_list,
+                                            'foods': foods_for_ai,
                                             'carbs_g': float(meal.get('carbs_g', 0)),
                                             'protein_g': float(meal.get('protein_g', 0)),
                                             'fat_g': float(meal.get('fat_g', 0)),
@@ -484,7 +550,7 @@ if crash_events:
         crash_df['start_time'] = pd.to_datetime(crash_df['start_time'])
         crash_df_display = crash_df[['start_time', 'drop_magnitude', 'max_velocity', 'duration_minutes']].copy()
         crash_df_display.columns = ['Time', 'Drop (mg/dL)', 'Max Velocity', 'Duration (min)']
-        crash_df_display['Time'] = crash_df_display['Time'].dt.strftime('%Y-%m-%d %H:%M')
+        crash_df_display['Time'] = crash_df_display['Time'].dt.strftime('%Y-%m-%d %I:%M %p')
         crash_df_display['Max Velocity'] = crash_df_display['Max Velocity'].apply(lambda x: f"{abs(x):.2f}")
         crash_df_display['Drop (mg/dL)'] = crash_df_display['Drop (mg/dL)'].apply(lambda x: f"{x:.1f}")
         crash_df_display['Duration (min)'] = crash_df_display['Duration (min)'].apply(lambda x: f"{x:.0f}")

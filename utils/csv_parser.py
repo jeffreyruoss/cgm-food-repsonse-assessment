@@ -170,14 +170,21 @@ def group_foods_into_meals(food_df: pd.DataFrame) -> pd.DataFrame:
         total_fiber = group_df['fiber_g'].sum()
         total_sugar = group_df['sugar_g'].sum()
 
-        # List of foods in this meal
+        # List of foods in this meal (names only, for backward compatibility)
         food_list = group_df['food_name'].tolist()
+
+        # List of foods with timestamps for display
+        foods_with_times = [
+            {'name': row['food_name'], 'timestamp': row['timestamp']}
+            for _, row in group_df.sort_values('timestamp').iterrows()
+        ]
 
         meals.append({
             'day': day,
             'group': group,
             'meal_time': meal_time,
             'foods': food_list,
+            'foods_with_times': foods_with_times,
             'food_count': len(food_list),
             'calories': total_calories,
             'protein_g': total_protein,
@@ -276,6 +283,7 @@ def merge_meals_with_glucose(
             'group': meal_row['group'],
             'meal_time': meal_time,
             'foods': meal_row['foods'],
+            'foods_with_times': meal_row.get('foods_with_times', []),
             'food_count': meal_row['food_count'],
             'calories': meal_row.get('calories', 0),
             'protein_g': meal_row.get('protein_g', 0),

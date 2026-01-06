@@ -94,10 +94,10 @@ def analyze_meal_response(meal_event: dict) -> dict:
     Analyze the glucose response to a specific meal.
 
     Returns detailed analysis including:
-    - Time to peak
+    - Duration of rise (time to peak)
     - Peak value
-    - Time to crash (if any)
-    - Crash severity
+    - Duration of drop
+    - Crash severity (if any)
     - Recovery time
     """
     glucose_readings = meal_event.get('glucose_readings', [])

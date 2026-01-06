@@ -106,7 +106,7 @@ Key Metrics:
         for event in crash_events[:15]:  # Limit to 15 events
             start_time = event.get('start_time', '')
             if hasattr(start_time, 'strftime'):
-                start_time = start_time.strftime('%Y-%m-%d %H:%M')
+                start_time = start_time.strftime('%Y-%m-%d %I:%M %p')
 
             pdf.cell(40, 6, str(start_time)[:16], 1, 0, 'C')
             pdf.cell(30, 6, f"{event.get('duration_minutes', 0):.0f} min", 1, 0, 'C')

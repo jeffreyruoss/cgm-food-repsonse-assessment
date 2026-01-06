@@ -110,7 +110,7 @@ if filtered_crashes:
         crash_df['start_time'] = pd.to_datetime(crash_df['start_time'])
         crash_df_display = crash_df[['start_time', 'drop_magnitude', 'max_velocity', 'duration_minutes']].copy()
         crash_df_display.columns = ['Time', 'Drop (mg/dL)', 'Max Velocity (mg/dL/min)', 'Duration (min)']
-        crash_df_display['Time'] = crash_df_display['Time'].dt.strftime('%Y-%m-%d %H:%M')
+        crash_df_display['Time'] = crash_df_display['Time'].dt.strftime('%Y-%m-%d %I:%M %p')
         crash_df_display['Drop (mg/dL)'] = crash_df_display['Drop (mg/dL)'].apply(lambda x: f"{x:.1f}")
         crash_df_display['Max Velocity (mg/dL/min)'] = crash_df_display['Max Velocity (mg/dL/min)'].apply(lambda x: f"{abs(x):.2f}")
         crash_df_display['Duration (min)'] = crash_df_display['Duration (min)'].apply(lambda x: f"{x:.0f}")
