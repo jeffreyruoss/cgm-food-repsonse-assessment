@@ -1,0 +1,35 @@
+NOTES.md
+
+# Virtual environment
+.venv/
+venv/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Environment & secrets
+.env
+.env.local
+.streamlit/secrets.toml
+
+# macOS
+.DS_Store
+
+# Generated files
+*.pdf
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Sample data (optional - remove if you want to include sample data)
+# sample-data/

@@ -1,0 +1,8 @@
+streamlit
+pandas
+numpy
+plotly
+supabase
+google-generativeai
+python-dotenv
+fpdf2
