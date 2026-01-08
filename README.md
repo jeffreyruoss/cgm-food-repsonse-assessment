@@ -2,6 +2,10 @@
 
 A Streamlit app for analyzing Continuous Glucose Monitor (CGM) data and correlating it with food intake to detect and understand **reactive hypoglycemia** patterns.
 
+## Production
+ - URL: https://cgm-food-repsonse-assessment.streamlit.app/
+ - Dashboard: https://share.streamlit.io/
+
 ## Features
 
 - **📤 Upload Data** - Import daily CGM exports from FreeStyle Libre and food logs from Cronometer
@@ -36,7 +40,7 @@ GEMINI_API_KEY=your-gemini-api-key
 ### 3. Run the app
 
 ```bash
-streamlit run app.py
+source .venv/bin/activate && streamlit run app.py
 ```
 
 ## Project Structure

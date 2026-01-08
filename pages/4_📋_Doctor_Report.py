@@ -4,9 +4,14 @@ import pandas as pd
 from datetime import datetime, timedelta
 from services import generate_doctor_report, save_report_to_file
 from utils import get_crash_summary_stats
+from utils.auth import check_password
 from database import get_crash_events, get_glucose_readings, get_food_logs
 
 st.set_page_config(page_title="Doctor's Report", page_icon="📋", layout="wide")
+
+# Authentication check
+if not check_password():
+    st.stop()
 
 st.title("📋 Doctor's Note Export")
 st.markdown("Generate a professional PDF summary for your physician.")

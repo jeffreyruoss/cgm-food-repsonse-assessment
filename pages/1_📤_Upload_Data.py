@@ -2,9 +2,14 @@
 import streamlit as st
 import pandas as pd
 from utils import parse_libre_csv, parse_cronometer_csv, group_foods_into_meals, merge_meals_with_glucose, calculate_glucose_velocity, detect_crash_events
+from utils.auth import check_password
 from database import save_glucose_readings, save_food_logs, save_crash_events
 
 st.set_page_config(page_title="Upload Data", page_icon="📤", layout="wide")
+
+# Authentication check
+if not check_password():
+    st.stop()
 
 st.title("📤 Daily Data Upload")
 st.markdown("Upload your FreeStyle Libre CGM export and Cronometer food log at the end of each day.")

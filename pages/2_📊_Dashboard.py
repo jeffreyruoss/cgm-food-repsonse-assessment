@@ -9,8 +9,13 @@ from utils import calculate_glucose_velocity, detect_crash_events, get_crash_sum
 from database import get_glucose_readings, get_food_logs, get_crash_events, get_meal_ai_assessment, save_meal_ai_assessment, get_all_meal_ai_assessments
 from services.gemini_service import analyze_meal_with_ai
 from config import DANGER_ZONE_THRESHOLD
+from utils.auth import check_password
 
 st.set_page_config(page_title="Dashboard", page_icon="📊", layout="wide")
+
+# Authentication check
+if not check_password():
+    st.stop()
 
 st.title("📊 Glucose Dashboard")
 

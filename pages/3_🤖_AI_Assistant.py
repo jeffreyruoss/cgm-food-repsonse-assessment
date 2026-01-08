@@ -5,8 +5,13 @@ from datetime import datetime
 from services import analyze_crash_event, predict_crash_timing, analyze_symptom_mapping, chat_with_context
 from database import get_chat_history, save_chat_message, get_glucose_readings, get_food_logs
 from config import GEMINI_API_KEY
+from utils.auth import check_password
 
 st.set_page_config(page_title="AI Assistant", page_icon="🤖", layout="wide")
+
+# Authentication check
+if not check_password():
+    st.stop()
 
 st.title("🤖 AI Analysis Assistant")
 st.markdown("Ask questions about your glucose data, get crash explanations, and receive personalized insights.")
