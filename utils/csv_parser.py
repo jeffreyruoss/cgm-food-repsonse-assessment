@@ -51,7 +51,7 @@ def parse_libre_csv(file_content: str) -> pd.DataFrame:
 
         # Create standardized dataframe
         result = pd.DataFrame({
-            'timestamp': pd.to_datetime(df[timestamp_col]),
+            'timestamp': pd.to_datetime(df[timestamp_col], dayfirst=False, errors='coerce'),
             'glucose_mg_dl': pd.to_numeric(df[glucose_col], errors='coerce')
         })
 
@@ -83,13 +83,13 @@ def parse_cronometer_csv(file_content: str) -> pd.DataFrame:
 
         # Find and combine date/time columns
         if 'day' in df.columns and 'time' in df.columns:
-            df['timestamp'] = pd.to_datetime(df['day'] + ' ' + df['time'])
-            df['day'] = pd.to_datetime(df['day']).dt.date
+            df['timestamp'] = pd.to_datetime(df['day'] + ' ' + df['time'], dayfirst=False, errors='coerce')
+            df['day'] = pd.to_datetime(df['day'], dayfirst=False, errors='coerce').dt.date
         elif 'date' in df.columns and 'time' in df.columns:
-            df['timestamp'] = pd.to_datetime(df['date'] + ' ' + df['time'])
-            df['day'] = pd.to_datetime(df['date']).dt.date
+            df['timestamp'] = pd.to_datetime(df['date'] + ' ' + df['time'], dayfirst=False, errors='coerce')
+            df['day'] = pd.to_datetime(df['date'], dayfirst=False, errors='coerce').dt.date
         elif 'timestamp' in df.columns:
-            df['timestamp'] = pd.to_datetime(df['timestamp'])
+            df['timestamp'] = pd.to_datetime(df['timestamp'], dayfirst=False, errors='coerce')
             df['day'] = df['timestamp'].dt.date
         else:
             raise ValueError("Could not identify date/time columns")

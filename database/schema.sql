@@ -37,6 +37,18 @@ CREATE TABLE IF NOT EXISTS food_logs (
 
 CREATE INDEX IF NOT EXISTS idx_food_timestamp ON food_logs(timestamp);
 
+-- Imported Files Tracking Table
+CREATE TABLE IF NOT EXISTS imported_files (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    file_name TEXT NOT NULL,
+    file_mtime NUMERIC NOT NULL,
+    file_type TEXT NOT NULL, -- 'glucose' or 'food'
+    imported_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(file_name, file_mtime)
+);
+
+CREATE INDEX IF NOT EXISTS idx_imported_files_name ON imported_files(file_name);
+
 -- Crash Events Table
 CREATE TABLE IF NOT EXISTS crash_events (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

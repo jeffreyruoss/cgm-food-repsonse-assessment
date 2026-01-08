@@ -4,9 +4,19 @@ import pandas as pd
 from datetime import datetime, timedelta
 from services import generate_doctor_report, save_report_to_file
 from utils import get_crash_summary_stats
+from utils.auto_import import check_and_perform_auto_import
 from database import get_crash_events, get_glucose_readings, get_food_logs
 
 st.set_page_config(page_title="Doctor's Report", page_icon="📋", layout="wide")
+
+# Run auto-import check on page load
+check_and_perform_auto_import()
+
+# Show last imported files if they exist
+if 'last_imported_files' in st.session_state:
+    with st.expander("📥 Recently Auto-Imported Files", expanded=False):
+        for f in st.session_state['last_imported_files']:
+            st.write(f"- **{f['name']}** ({f['date']})")
 
 st.title("📋 Doctor's Note Export")
 st.markdown("Generate a professional PDF summary for your physician.")
@@ -115,7 +125,7 @@ if filtered_crashes:
         crash_df_display['Max Velocity (mg/dL/min)'] = crash_df_display['Max Velocity (mg/dL/min)'].apply(lambda x: f"{abs(x):.2f}")
         crash_df_display['Duration (min)'] = crash_df_display['Duration (min)'].apply(lambda x: f"{x:.0f}")
 
-        st.dataframe(crash_df_display, use_container_width=True, hide_index=True)
+        st.dataframe(crash_df_display, width="stretch", hide_index=True)
 else:
     st.success("✅ No crash events in selected period!")
 
@@ -154,7 +164,7 @@ if food_df is not None and not food_df.empty and filtered_crashes:
         trigger_summary = trigger_summary.sort_values('Crash Count', ascending=False)
         trigger_summary['Avg Velocity'] = trigger_summary['Avg Velocity'].apply(lambda x: f"{abs(x):.2f}")
 
-        st.dataframe(trigger_summary.head(5), use_container_width=True, hide_index=True)
+        st.dataframe(trigger_summary.head(5), width="stretch", hide_index=True)
 
         # Convert to format for PDF
         food_trigger_list = [
@@ -172,7 +182,7 @@ st.divider()
 col1, col2, col3 = st.columns([1, 2, 1])
 
 with col2:
-    if st.button("📄 Generate PDF Report", type="primary", use_container_width=True):
+    if st.button("📄 Generate PDF Report", type="primary", width="stretch"):
         with st.spinner("Generating report..."):
             try:
                 pdf_bytes = generate_doctor_report(
@@ -192,7 +202,7 @@ with col2:
                     file_name=filename,
                     mime="application/pdf",
                     type="primary",
-                    use_container_width=True
+                    width="stretch"
                 )
 
                 st.success("✅ Report generated successfully!")

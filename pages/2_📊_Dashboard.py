@@ -6,11 +6,21 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 from utils import calculate_glucose_velocity, detect_crash_events, get_crash_summary_stats, group_foods_into_meals, merge_meals_with_glucose, analyze_meal_response
+from utils.auto_import import check_and_perform_auto_import
 from database import get_glucose_readings, get_food_logs, get_crash_events, get_meal_ai_assessment, save_meal_ai_assessment, get_all_meal_ai_assessments
 from services.gemini_service import analyze_meal_with_ai
 from config import DANGER_ZONE_THRESHOLD
 
 st.set_page_config(page_title="Dashboard", page_icon="📊", layout="wide")
+
+# Run auto-import check on page load
+check_and_perform_auto_import()
+
+# Show last imported files if they exist
+if 'last_imported_files' in st.session_state:
+    with st.expander("📥 Recently Auto-Imported Files", expanded=False):
+        for f in st.session_state['last_imported_files']:
+            st.write(f"- **{f['name']}** ({f['date']})")
 
 st.title("📊 Glucose Dashboard")
 
@@ -87,22 +97,22 @@ today = datetime.now().date()
 # Date range shortcut buttons
 row1_cols = st.sidebar.columns(2)
 with row1_cols[0]:
-    if st.button("Today", use_container_width=True):
+    if st.button("Today", width="stretch"):
         st.session_state['date_range'] = (today, today)
         st.rerun()
 with row1_cols[1]:
-    if st.button("Yesterday", use_container_width=True):
+    if st.button("Yesterday", width="stretch"):
         yesterday = today - timedelta(days=1)
         st.session_state['date_range'] = (yesterday, yesterday)
         st.rerun()
 
 row2_cols = st.sidebar.columns(2)
 with row2_cols[0]:
-    if st.button("Last 7 Days", use_container_width=True):
+    if st.button("Last 7 Days", width="stretch"):
         st.session_state['date_range'] = (today - timedelta(days=6), today)
         st.rerun()
 with row2_cols[1]:
-    if st.button("Last 30 Days", use_container_width=True):
+    if st.button("Last 30 Days", width="stretch"):
         st.session_state['date_range'] = (today - timedelta(days=29), today)
         st.rerun()
 
@@ -281,7 +291,7 @@ fig.update_yaxes(title_text="mg/dL", row=1, col=1)
 fig.update_yaxes(title_text="mg/dL/min", row=2, col=1)
 fig.update_xaxes(title_text="Time", row=2, col=1, tickformat='%I:%M %p')  # 12-hour format
 
-st.plotly_chart(fig, use_container_width=True)
+st.plotly_chart(fig, width="stretch")
 
 # Meal Response Assessment section
 if food_df is not None and not food_df.empty:
@@ -307,255 +317,379 @@ if food_df is not None and not food_df.empty:
             filtered_meals = merged_meals[meal_mask]
 
             if not filtered_meals.empty:
-                # Meal group icons
-                MEAL_ICONS = {
-                    'Breakfast': '🌅',
-                    'Lunch': '☀️',
-                    'Dinner': '🌙',
-                    'Snack': '🍎',
-                    'Snack 1': '🍎',
-                    'Snack 2': '🍎',
-                    'Snack 3': '🍎',
-                }
-                DEFAULT_MEAL_ICON = '🍽️'
-
-                # Sort meals by time and group by date
-                filtered_meals = filtered_meals.sort_values('meal_time')
-                current_date = None
-
+                # Pre-calculate analysis for all meals (required for sorting/filtering)
+                meal_analyses = {}
                 for idx, meal in filtered_meals.iterrows():
-                    # Add date heading when date changes
-                    meal_date = meal['meal_time'].date()
-                    if meal_date != current_date:
-                        current_date = meal_date
-                        st.markdown(f"### 📅 {meal_date.strftime('%A, %B %d, %Y')}")
-
-                    # Check data completeness
-                    data_complete = meal.get('data_complete', True)
-                    data_coverage_minutes = meal.get('data_coverage_minutes', 180)
-                    minutes_until_complete = meal.get('minutes_until_complete', 0)
                     glucose_readings = meal.get('glucose_readings', [])
                     has_any_data = len(glucose_readings) > 0
-
-                    # Analyze this meal's glucose response (local calculation, no AI)
                     analysis = analyze_meal_response(meal.to_dict()) if has_any_data else {}
 
-                    meal_time = meal['meal_time']
-                    meal_time_str = meal_time.strftime('%Y-%m-%d %I:%M %p')
-                    group_name = meal.get('group', 'Unknown')
-                    food_count = meal.get('food_count', 0)
+                    # Store analysis and basic stats
+                    analysis['has_any_data'] = has_any_data
 
-                    # Create unique meal key for database
-                    meal_key = f"{meal_time.strftime('%Y-%m-%d')}_{group_name}"
+                    # Risk Level (Refined logic: Issues show even if partial)
+                    data_complete = meal.get('data_complete', True)
 
-                    # Extract stats from analysis
-                    max_drop_velocity = analysis.get('max_drop_velocity', 0)
-                    total_drop = analysis.get('total_drop', 0)
-                    drop_duration_minutes = analysis.get('drop_duration_minutes')
-
-                    # Determine risk level and color
                     if not has_any_data:
-                        risk_emoji = "⏳"
-                        risk_text = "Awaiting Data"
-                    elif not data_complete:
-                        risk_emoji = "🔄"
-                        risk_text = f"Partial ({int(data_coverage_minutes)} min)"
-                    elif analysis.get('crash_detected', False):
-                        risk_emoji = "🔴"
-                        risk_text = "Crash Detected"
-                    elif max_drop_velocity <= -1.5:
-                        risk_emoji = "🟠"
-                        risk_text = "Fast Drop"
-                    elif analysis.get('glucose_rise', 0) > 50:
-                        risk_emoji = "🟡"
-                        risk_text = "High Spike"
+                        risk = "Awaiting Data"
                     else:
-                        risk_emoji = "🟢"
-                        risk_text = "Good Response"
+                        m_rise_v = analysis.get('max_rise_velocity', 0)
+                        m_rise_d = analysis.get('glucose_rise', 0)
+                        m_peak = analysis.get('peak_glucose', 0)
+                        m_drop_v = abs(analysis.get('max_drop_velocity', 0))
+                        m_floor = analysis.get('min_glucose', 100)
 
-                    # Check if we have an AI assessment already
-                    existing_assessment = ai_assessments.get(meal_key)
-                    has_ai = existing_assessment is not None and existing_assessment.get('ai_assessment')
-                    ai_icon = "🤖" if has_ai else ""
+                        is_bad = (m_rise_v > 2.5 or m_rise_d > 50 or m_peak > 140 or m_drop_v > 1.5 or m_floor < 65)
+                        is_normal = (
+                            (1.5 <= m_rise_v <= 2.5) or
+                            (30 <= m_rise_d <= 50) or
+                            (120 <= m_peak <= 140) or
+                            (1.0 <= m_drop_v <= 1.5) or
+                            (65 <= m_floor <= 75)
+                        )
 
-                    # Get meal group icon
-                    meal_icon = MEAL_ICONS.get(group_name, DEFAULT_MEAL_ICON)
-                    meal_time_display = meal_time.strftime('%I:%M %p').lstrip('0')  # 12-hour format, strip leading zero
-
-                    with st.expander(f"{risk_emoji} {meal_time_display} {meal_icon} {group_name} ({food_count} foods) - {risk_text} {ai_icon}", expanded=False):
-                        # Show data status message for incomplete data
-                        if not has_any_data:
-                            st.warning(f"⏳ No glucose data available yet. Sync your CGM to see response data.")
+                        if is_bad:
+                            risk = "Reactive"
                         elif not data_complete:
-                            hours_left = int(minutes_until_complete // 60)
-                            mins_left = int(minutes_until_complete % 60)
-                            if hours_left > 0:
-                                time_str = f"{hours_left}h {mins_left}m"
-                            else:
-                                time_str = f"{mins_left} min"
-                            st.info(f"🔄 Partial data: {int(data_coverage_minutes)} min of 180 min. Full data available in ~{time_str} after CGM sync.")
-
-                        # Show foods in this meal with timestamps in a grid
-                        foods_with_times = meal.get('foods_with_times', [])
-                        if foods_with_times:
-                            st.markdown("**🍽️ Foods in this meal:**")
-                            # Create grid with 3 columns
-                            food_cols = st.columns(3)
-                            for i, food_item in enumerate(foods_with_times):
-                                with food_cols[i % 3]:
-                                    food_time = food_item['timestamp']
-                                    if hasattr(food_time, 'strftime'):
-                                        time_str = food_time.strftime('%I:%M %p').lstrip('0')
-                                    else:
-                                        time_str = str(food_time)
-                                    st.markdown(f"• **{time_str}** - {food_item['name']}")
+                            risk = "Partial Data"
+                        elif is_normal:
+                            risk = "Normal"
                         else:
-                            # Fallback to simple list if no timestamps available
-                            foods_list = meal.get('foods', [])
-                            if foods_list:
-                                st.markdown(f"**Foods:** {', '.join(foods_list)}")
+                            risk = "Great"
 
-                        col1, col2, col3, col4 = st.columns(4)
+                    analysis['risk_category'] = risk
+                    analysis['data_complete'] = data_complete
+                    meal_analyses[idx] = analysis
+
+                # Sorting and Filtering UI
+                st.markdown("##### 🔍 Filter & Sort Meals")
+
+                # Risk level checkboxes - one per row for long labels
+                st.markdown("**Risk Level Filters:**")
+                selected_risks = []
+
+                if st.checkbox("🟢 **Great (Stable)**\nRise < 1.5 mg/dL/min, Delta < 30 mg/dL, Peak < 120 mg/dL, Drop < 1.0 mg/dL/min, Floor > 75 mg/dL", value=True, key="risk_great"):
+                    selected_risks.append("Great")
+                if st.checkbox("🟡 **Normal (Good)**\nRise 1.5-2.5 mg/dL/min, Delta 30-50 mg/dL, Peak 120-140 mg/dL, Drop 1.0-1.5 mg/dL/min, Floor 65-75 mg/dL", value=True, key="risk_normal"):
+                    selected_risks.append("Normal")
+                if st.checkbox("🔴 **Reactive (Bad)**\nRise > 2.5 mg/dL/min, Delta > 50 mg/dL, Peak > 140 mg/dL, Drop > 1.5 mg/dL/min, Floor < 65 mg/dL", value=True, key="risk_bad"):
+                    selected_risks.append("Reactive")
+                if st.checkbox("🔄 **Partial Data**\n< 180 min coverage (and no 'Bad' metrics detected yet)", value=True, key="risk_partial"):
+                    selected_risks.append("Partial Data")
+                if st.checkbox("⏳ **Awaiting Data**\nNo glucose readings available for this meal period yet", value=True, key="risk_await"):
+                    selected_risks.append("Awaiting Data")
+
+                if not selected_risks:
+                    st.warning("⚠️ No risk levels selected. Filtered results will be empty.")
+
+                fcol1, fcol2 = st.columns([1, 1])
+                with fcol1:
+                    sort_on = st.selectbox("Sort By", options=[
+                        "Meal Time", "Max Drop Velocity", "Rise Duration", "Drop Duration", "Glucose Rise", "Total Drop"
+                    ])
+                with fcol2:
+                    sort_dir = st.radio("Direction", options=["Ascending", "Descending"], horizontal=True, index=1 if "Velocity" in sort_on or "Time" in sort_on else 0)
+
+                # Advanced Filters in expander
+                with st.expander("More Filters (Velocity & Duration)"):
+                    acol1, acol2, acol3 = st.columns(3)
+                    with acol1:
+                        v_limit = st.slider("Min Max Drop Velocity (abs)", 0.0, 5.0, 0.0, step=0.1, help="Show meals where the fastest drop was at least this many mg/dL/min")
+                    with acol2:
+                        rise_limit = st.slider("Min Rise Duration (min)", 0, 180, 0)
+                    with acol3:
+                        drop_limit = st.slider("Min Drop Duration (min)", 0, 180, 0)
+
+                # Add helper columns for filtering/sorting
+                df_to_sort = filtered_meals.copy()
+                df_to_sort['risk_category'] = [meal_analyses[i]['risk_category'] for i in df_to_sort.index]
+                df_to_sort['v_abs'] = [abs(meal_analyses[i].get('max_drop_velocity') or 0) for i in df_to_sort.index]
+                df_to_sort['rise_dur'] = [meal_analyses[i].get('time_to_peak_minutes') or 0 for i in df_to_sort.index]
+                df_to_sort['drop_dur'] = [meal_analyses[i].get('drop_duration_minutes') or 0 for i in df_to_sort.index]
+                df_to_sort['rise_mag'] = [meal_analyses[i].get('glucose_rise') or 0 for i in df_to_sort.index]
+                df_to_sort['drop_mag'] = [meal_analyses[i].get('total_drop') or 0 for i in df_to_sort.index]
+
+                # Apply Filters
+                mask = df_to_sort['risk_category'].isin(selected_risks)
+                mask &= df_to_sort['v_abs'] >= v_limit
+                mask &= df_to_sort['rise_dur'] >= rise_limit
+                mask &= df_to_sort['drop_dur'] >= drop_limit
+
+                display_meals = df_to_sort[mask].copy()
+
+                # Map UI names to columns
+                sort_map = {
+                    "Meal Time": "meal_time",
+                    "Max Drop Velocity": "v_abs",
+                    "Rise Duration": "rise_dur",
+                    "Drop Duration": "drop_dur",
+                    "Glucose Rise": "rise_mag",
+                    "Total Drop": "drop_mag"
+                }
+
+                is_asc = sort_dir == "Ascending"
+                display_meals = display_meals.sort_values(sort_map[sort_on], ascending=is_asc)
+
+                if display_meals.empty:
+                    st.info("No meals match the selected filters.")
+                else:
+                    # Meal group icons
+                    MEAL_ICONS = {
+                        'Breakfast': '🌅',
+                        'Lunch': '☀️',
+                        'Dinner': '🌙',
+                        'Snack': '🍎',
+                        'Snack 1': '🍎',
+                        'Snack 2': '🍎',
+                        'Snack 3': '🍎',
+                    }
+                    DEFAULT_MEAL_ICON = '🍽️'
+
+                    current_date = None
+
+                    for idx, meal in display_meals.iterrows():
+                        # Add date heading when date changes (only if sorting by time)
+                        if sort_on == "Meal Time":
+                            meal_date = meal['meal_time'].date()
+                            if meal_date != current_date:
+                                current_date = meal_date
+                                st.markdown(f"### 📅 {meal_date.strftime('%A, %B %d, %Y')}")
+
+                        # Use pre-calculated analysis
+                        analysis = meal_analyses[idx]
+                        has_any_data = analysis['has_any_data']
+                        data_complete = analysis['data_complete']
+                        data_coverage_minutes = meal.get('data_coverage_minutes', 0)
+                        minutes_until_complete = meal.get('minutes_until_complete', 0)
+                        glucose_readings = meal.get('glucose_readings', [])
+
+                        meal_time = meal['meal_time']
+                        group_name = meal.get('group', 'Unknown')
+                        food_count = meal.get('food_count', 0)
+
+                        # Create unique meal key for database
+                        meal_key = f"{meal_time.strftime('%Y-%m-%d')}_{group_name}"
+
+                        # Extract stats from pre-calculated analysis
+                        max_drop_velocity = analysis.get('max_drop_velocity', 0)
+                        total_drop = analysis.get('total_drop', 0)
+                        drop_duration_minutes = analysis.get('drop_duration_minutes')
+
+                        # Determine risk level and color (using pre-calculated category)
+                        risk_text = analysis['risk_category']
+                        if risk_text == "Reactive":
+                            risk_emoji = "🔴"
+                        elif risk_text == "Normal":
+                            risk_emoji = "🟡"
+                        elif risk_text == "Great":
+                            risk_emoji = "🟢"
+                        elif risk_text == "Partial Data":
+                            risk_emoji = "🔄"
+                            risk_text = f"Partial ({int(data_coverage_minutes)} min)"
+                        elif risk_text == "Awaiting Data":
+                            risk_emoji = "⏳"
+                        else:
+                            risk_emoji = "⚪"
+
+                        # Check if we have an AI assessment already
+                        existing_assessment = ai_assessments.get(meal_key)
+                        has_ai = existing_assessment is not None and existing_assessment.get('ai_assessment')
+                        ai_icon = "🤖" if has_ai else ""
+
+                        # Get meal group icon
+                        meal_icon = MEAL_ICONS.get(group_name, DEFAULT_MEAL_ICON)
+                        # Format date and time for the expander title
+                        meal_date_display = meal_time.strftime('%a, %b %d')
+                        meal_time_display = meal_time.strftime('%I:%M %p').lstrip('0')  # 12-hour format, strip leading zero
+
+                        with st.expander(f"{risk_emoji} {meal_date_display} • {meal_time_display} {meal_icon} {group_name} ({food_count} foods) - {risk_text} {ai_icon}", expanded=False):
+                            # Show data status message for incomplete data
+                            if not has_any_data:
+                                st.warning(f"⏳ No glucose data available yet. Sync your CGM to see response data.")
+                            elif not data_complete:
+                                hours_left = int(minutes_until_complete // 60)
+                                mins_left = int(minutes_until_complete % 60)
+                                if hours_left > 0:
+                                    time_str = f"{hours_left}h {mins_left}m"
+                                else:
+                                    time_str = f"{mins_left} min"
+                                st.info(f"🔄 Partial data: {int(data_coverage_minutes)} min of 180 min. Full data available in ~{time_str} after CGM sync.")
+
+                            # Show foods in this meal with timestamps in a grid
+                            foods_with_times = meal.get('foods_with_times', [])
+                            if foods_with_times:
+                                st.markdown("**🍽️ Foods in this meal:**")
+                                # Create grid with 3 columns
+                                food_cols = st.columns(3)
+                                for i, food_item in enumerate(foods_with_times):
+                                    with food_cols[i % 3]:
+                                        food_time = food_item['timestamp']
+                                        if hasattr(food_time, 'strftime'):
+                                            time_str = food_time.strftime('%I:%M %p').lstrip('0')
+                                        else:
+                                            time_str = str(food_time)
+                                        st.markdown(f"• **{time_str}** - {food_item['name']}")
+                            else:
+                                # Fallback to simple list if no timestamps available
+                                foods_list = meal.get('foods', [])
+                                if foods_list:
+                                    st.markdown(f"**Foods:** {', '.join(foods_list)}")
+
+                            col1, col2, col3, col4 = st.columns(4)
 
                         with col1:
                             st.markdown("**📈 Rise**")
                             if has_any_data:
-                                st.metric("Baseline", f"{analysis.get('baseline_glucose', 0):.0f} mg/dL")
-                                st.metric("Peak", f"{analysis.get('peak_glucose', 0):.0f} mg/dL",
-                                          delta=f"+{analysis.get('glucose_rise', 0):.0f}")
+                                # Get values
+                                peak = analysis.get('peak_glucose', 0)
+                                rise_delta = analysis.get('glucose_rise', 0)
+                                rise_vel = analysis.get('max_rise_velocity', 0)
+
+                                # Determine colors
+                                peak_color = "red" if peak > 140 else "orange" if peak >= 120 else "green"
+                                delta_color = "red" if rise_delta > 50 else "orange" if rise_delta >= 30 else "green"
+                                vel_color = "red" if rise_vel > 2.5 else "orange" if rise_vel >= 1.5 else "green"
+
+                                st.markdown(f"**Peak**: :{peak_color}[{peak:.0f} mg/dL]")
+                                st.markdown(f"**Rise Delta**: :{delta_color}[+{rise_delta:.0f} mg/dL]")
+                                st.markdown(f"**Rise Velocity**: :{vel_color}[{rise_vel:.2f} mg/dL/min]")
                                 st.metric("Duration of Rise", f"{analysis.get('time_to_peak_minutes', 0):.0f} min")
                             else:
-                                st.metric("Baseline", "—")
                                 st.metric("Peak", "—")
+                                st.metric("Rise Velocity", "—")
                                 st.metric("Duration of Rise", "—")
 
                         with col2:
                             st.markdown("**📉 Drop**")
                             if has_any_data:
-                                st.metric("Total Drop", f"{total_drop:.0f} mg/dL")
-                                if drop_duration_minutes is not None:
-                                    st.metric("Duration of Drop", f"{drop_duration_minutes:.0f} min")
-                                else:
-                                    st.metric("Duration of Drop", "—")
-                                velocity_color = "🔴" if max_drop_velocity <= -2.0 else "🟠" if max_drop_velocity <= -1.5 else "🟢"
-                                st.metric("Max Drop Velocity", f"{velocity_color} {abs(max_drop_velocity):.2f} mg/dL/min")
-                                if analysis.get('crash_detected', False):
-                                    st.metric("Crash at", f"{analysis.get('crash_start_minutes', 0):.0f} min")
+                                # Get values
+                                floor = analysis.get('min_glucose', 0)
+                                drop_vel = abs(analysis.get('max_drop_velocity', 0))
+                                total_drop = analysis.get('total_drop', 0)
+
+                                # Determine colors
+                                floor_color = "red" if floor < 65 else "orange" if floor <= 75 else "green"
+                                drop_vel_color = "red" if drop_vel > 1.5 else "orange" if drop_vel >= 1.0 else "green"
+
+                                st.markdown(f"**Min Floor**: :{floor_color}[{floor:.0f} mg/dL]")
+                                st.markdown(f"**Max Drop Velocity**: :{drop_vel_color}[{drop_vel:.2f} mg/dL/min]")
+                                st.markdown(f"**Total Drop**: {total_drop:.0f} mg/dL")
+                                if analysis.get('drop_duration_minutes'):
+                                    st.metric("Duration of Drop", f"{analysis.get('drop_duration_minutes', 0):.0f} min")
                             else:
-                                st.metric("Total Drop", "—")
-                                st.metric("Duration of Drop", "—")
+                                st.metric("Min Floor", "—")
                                 st.metric("Max Drop Velocity", "—")
+                                st.metric("Total Drop", "—")
 
-                        with col3:
-                            st.markdown("**🍎 Macros**")
-                            st.metric("Carbs", f"{meal.get('carbs_g', 0):.1f}g")
-                            st.metric("Protein", f"{meal.get('protein_g', 0):.1f}g")
-                            st.metric("Fat", f"{meal.get('fat_g', 0):.1f}g")
+                            with col3:
+                                st.markdown("**🍎 Macros**")
+                                st.metric("Carbs", f"{meal.get('carbs_g', 0):.1f}g")
+                                st.metric("Protein", f"{meal.get('protein_g', 0):.1f}g")
+                                st.metric("Fat", f"{meal.get('fat_g', 0):.1f}g")
 
-                        with col4:
-                            st.markdown("**📊 Ratios**")
-                            carbs = meal.get('carbs_g', 0)
-                            protein = meal.get('protein_g', 0)
-                            fiber = meal.get('fiber_g', 0)
-                            p_c_ratio = protein / carbs if carbs > 0 else 0
-                            st.metric("P:C Ratio", f"{p_c_ratio:.2f}")
-                            st.metric("Fiber", f"{fiber:.1f}g")
-                            st.metric("Sugar", f"{meal.get('sugar_g', 0):.1f}g")
+                            with col4:
+                                st.markdown("**📊 Ratios**")
+                                carbs = meal.get('carbs_g', 0)
+                                protein = meal.get('protein_g', 0)
+                                fiber = meal.get('fiber_g', 0)
+                                p_c_ratio = protein / carbs if carbs > 0 else 0
+                                st.metric("P:C Ratio", f"{p_c_ratio:.2f}")
+                                st.metric("Fiber", f"{fiber:.1f}g")
+                                st.metric("Sugar", f"{meal.get('sugar_g', 0):.1f}g")
 
-                        # AI Assessment Section (only show if we have glucose data)
-                        if has_any_data:
-                            st.divider()
-                            if has_ai:
-                                st.markdown("### 🤖 AI Assessment")
-                                st.markdown(existing_assessment.get('ai_assessment', ''))
-                            else:
-                                # Button to generate AI assessment
-                                if st.button(f"🤖 Generate AI Assessment", key=f"ai_btn_{meal_key}"):
-                                    with st.spinner("Generating AI assessment..."):
-                                        # Get foods list for AI
-                                        foods_for_ai = meal.get('foods', [])
-                                        # Prepare meal data for AI
-                                        meal_data_for_ai = {
-                                            'meal_key': meal_key,
-                                            'meal_time': meal_time.isoformat(),
-                                            'group_name': group_name,
-                                            'foods': foods_for_ai,
-                                            'carbs_g': float(meal.get('carbs_g', 0)),
-                                            'protein_g': float(meal.get('protein_g', 0)),
-                                            'fat_g': float(meal.get('fat_g', 0)),
-                                            'fiber_g': float(meal.get('fiber_g', 0)),
-                                            'sugar_g': float(meal.get('sugar_g', 0)),
-                                            'baseline_glucose': float(analysis.get('baseline_glucose', 0)),
-                                            'peak_glucose': float(analysis.get('peak_glucose', 0)),
-                                            'glucose_rise': float(analysis.get('glucose_rise', 0)),
-                                            'max_drop_velocity': float(max_drop_velocity),
-                                            'total_drop': float(total_drop),
-                                            'crash_detected': analysis.get('crash_detected', False),
-                                        }
+                            # AI Assessment Section (only show if we have glucose data)
+                            if has_any_data:
+                                st.divider()
+                                if has_ai:
+                                    st.markdown("### 🤖 AI Assessment")
+                                    st.markdown(existing_assessment.get('ai_assessment', ''))
+                                else:
+                                    # Button to generate AI assessment
+                                    if st.button(f"🤖 Generate AI Assessment", key=f"ai_btn_{meal_key}"):
+                                        with st.spinner("Generating AI assessment..."):
+                                            # Get foods list for AI
+                                            foods_for_ai = meal.get('foods', [])
+                                            # Prepare meal data for AI
+                                            meal_data_for_ai = {
+                                                'meal_key': meal_key,
+                                                'meal_time': meal_time.isoformat(),
+                                                'group_name': group_name,
+                                                'foods': foods_for_ai,
+                                                'carbs_g': float(meal.get('carbs_g', 0)),
+                                                'protein_g': float(meal.get('protein_g', 0)),
+                                                'fat_g': float(meal.get('fat_g', 0)),
+                                                'fiber_g': float(meal.get('fiber_g', 0)),
+                                                'sugar_g': float(meal.get('sugar_g', 0)),
+                                                'baseline_glucose': float(analysis.get('baseline_glucose', 0)),
+                                                'peak_glucose': float(analysis.get('peak_glucose', 0)),
+                                                'glucose_rise': float(analysis.get('glucose_rise', 0)),
+                                                'max_drop_velocity': float(max_drop_velocity),
+                                                'total_drop': float(total_drop),
+                                                'crash_detected': analysis.get('crash_detected', False),
+                                            }
 
-                                        # Call Gemini API
-                                        ai_text = analyze_meal_with_ai(meal_data_for_ai)
-                                        meal_data_for_ai['ai_assessment'] = ai_text
+                                            # Call Gemini API
+                                            ai_text = analyze_meal_with_ai(meal_data_for_ai)
+                                            meal_data_for_ai['ai_assessment'] = ai_text
 
-                                        # Save to database
-                                        if save_meal_ai_assessment(meal_data_for_ai):
-                                            # Update cache and rerun
-                                            st.session_state['ai_assessments_cache'][meal_key] = meal_data_for_ai
-                                            st.success("AI assessment saved!")
-                                            st.rerun()
-                                        else:
-                                            # Still show the assessment even if save failed
-                                            st.warning("Could not save to database, but here's the assessment:")
-                                            st.markdown(ai_text)
+                                            # Save to database
+                                            if save_meal_ai_assessment(meal_data_for_ai):
+                                                # Update cache and rerun
+                                                st.session_state['ai_assessments_cache'][meal_key] = meal_data_for_ai
+                                                st.success("AI assessment saved!")
+                                                st.rerun()
+                                            else:
+                                                # Still show the assessment even if save failed
+                                                st.warning("Could not save to database, but here's the assessment:")
+                                                st.markdown(ai_text)
 
-                        # Mini chart for this meal with velocity
-                        if glucose_readings:
-                            meal_glucose_df = pd.DataFrame(glucose_readings)
+                            # Mini chart for this meal with velocity
+                            if glucose_readings:
+                                meal_glucose_df = pd.DataFrame(glucose_readings)
 
-                            # Create subplot with glucose and velocity
-                            from plotly.subplots import make_subplots
-                            fig_meal = make_subplots(
-                                rows=2, cols=1,
-                                shared_xaxes=True,
-                                vertical_spacing=0.1,
-                                row_heights=[0.7, 0.3],
-                                subplot_titles=(f"Glucose Response: {group_name}", "Velocity (mg/dL/min)")
-                            )
+                                # Create subplot with glucose and velocity
+                                from plotly.subplots import make_subplots
+                                fig_meal = make_subplots(
+                                    rows=2, cols=1,
+                                    shared_xaxes=True,
+                                    vertical_spacing=0.1,
+                                    row_heights=[0.7, 0.3],
+                                    subplot_titles=(f"Glucose Response: {group_name}", "Velocity (mg/dL/min)")
+                                )
 
-                            # Glucose trace - Use Scattergl
-                            fig_meal.add_trace(
-                                go.Scattergl(
-                                    x=meal_glucose_df['minutes_from_meal'],
-                                    y=meal_glucose_df['glucose_mg_dl'],
-                                    mode='lines+markers',
-                                    name='Glucose',
-                                    line=dict(color='#1f77b4', width=2)
-                                ),
-                                row=1, col=1
-                            )
-                            fig_meal.add_hline(y=70, line_dash="dash", line_color="orange", opacity=0.5, row=1, col=1)
-                            fig_meal.add_hline(y=140, line_dash="dash", line_color="orange", opacity=0.5, row=1, col=1)
-
-                            # Velocity trace if available
-                            if 'velocity_smoothed' in meal_glucose_df.columns:
+                                # Glucose trace - Use Scattergl
                                 fig_meal.add_trace(
                                     go.Scattergl(
                                         x=meal_glucose_df['minutes_from_meal'],
-                                        y=meal_glucose_df['velocity_smoothed'],
-                                        mode='lines',
-                                        name='Velocity',
-                                        line=dict(color='purple', width=1.5)
+                                        y=meal_glucose_df['glucose_mg_dl'],
+                                        mode='lines+markers',
+                                        name='Glucose',
+                                        line=dict(color='#1f77b4', width=2)
                                     ),
-                                    row=2, col=1
+                                    row=1, col=1
                                 )
-                                fig_meal.add_hline(y=-DANGER_ZONE_THRESHOLD, line_dash="dash", line_color="red", row=2, col=1)
-                                fig_meal.add_hline(y=0, line_dash="solid", line_color="gray", opacity=0.3, row=2, col=1)
+                                fig_meal.add_hline(y=70, line_dash="dash", line_color="orange", opacity=0.5, row=1, col=1)
+                                fig_meal.add_hline(y=140, line_dash="dash", line_color="orange", opacity=0.5, row=1, col=1)
 
-                            fig_meal.update_layout(height=400, showlegend=False)
-                            fig_meal.update_xaxes(title_text="Minutes from Meal", row=2, col=1)
-                            fig_meal.update_yaxes(title_text="mg/dL", row=1, col=1)
-                            fig_meal.update_yaxes(title_text="mg/dL/min", row=2, col=1)
-                            st.plotly_chart(fig_meal, use_container_width=True)
+                                # Velocity trace if available
+                                if 'velocity_smoothed' in meal_glucose_df.columns:
+                                    fig_meal.add_trace(
+                                        go.Scattergl(
+                                            x=meal_glucose_df['minutes_from_meal'],
+                                            y=meal_glucose_df['velocity_smoothed'],
+                                            mode='lines',
+                                            name='Velocity',
+                                            line=dict(color='purple', width=1.5)
+                                        ),
+                                        row=2, col=1
+                                    )
+                                    fig_meal.add_hline(y=-DANGER_ZONE_THRESHOLD, line_dash="dash", line_color="red", row=2, col=1)
+                                    fig_meal.add_hline(y=0, line_dash="solid", line_color="gray", opacity=0.3, row=2, col=1)
+
+                                fig_meal.update_xaxes(title_text="Minutes from Meal", row=2, col=1)
+                                fig_meal.update_yaxes(title_text="mg/dL", row=1, col=1)
+                                fig_meal.update_yaxes(title_text="mg/dL/min", row=2, col=1)
+                                st.plotly_chart(fig_meal, width="stretch")
             else:
                 st.info("No meals found in the selected date range.")
         else:
@@ -581,7 +715,7 @@ if crash_events:
         crash_df_display['Drop (mg/dL)'] = crash_df_display['Drop (mg/dL)'].apply(lambda x: f"{x:.1f}")
         crash_df_display['Duration (min)'] = crash_df_display['Duration (min)'].apply(lambda x: f"{x:.0f}")
 
-        st.dataframe(crash_df_display, use_container_width=True, hide_index=True)
+        st.dataframe(crash_df_display, width="stretch", hide_index=True)
 
     with col2:
         # Crash distribution chart
@@ -592,7 +726,7 @@ if crash_events:
             title='Crash Magnitude Distribution',
             labels={'drop_magnitude': 'Drop Magnitude (mg/dL)'}
         )
-        st.plotly_chart(fig_dist, use_container_width=True)
+        st.plotly_chart(fig_dist, width="stretch")
 
 # Macro correlation section
 if food_df is not None and not food_df.empty and crash_events:
@@ -616,7 +750,7 @@ if food_df is not None and not food_df.empty and crash_events:
             title='Protein vs Carbs (colored by Sugar)',
             labels={'carbs_g': 'Carbs (g)', 'protein_g': 'Protein (g)', 'sugar_g': 'Sugar (g)'}
         )
-        st.plotly_chart(fig_ratio, use_container_width=True)
+        st.plotly_chart(fig_ratio, width="stretch")
 
     with col2:
         # Daily macro breakdown
@@ -635,7 +769,7 @@ if food_df is not None and not food_df.empty and crash_events:
             title='Daily Macro Breakdown',
             barmode='group'
         )
-        st.plotly_chart(fig_macros, use_container_width=True)
+        st.plotly_chart(fig_macros, width="stretch")
 
 # Sidebar stats
 with st.sidebar:

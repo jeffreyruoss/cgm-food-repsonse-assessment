@@ -4,9 +4,19 @@ import pandas as pd
 from datetime import datetime
 from services import analyze_crash_event, predict_crash_timing, analyze_symptom_mapping, chat_with_context
 from database import get_chat_history, save_chat_message, get_glucose_readings, get_food_logs
+from utils.auto_import import check_and_perform_auto_import
 from config import GEMINI_API_KEY
 
 st.set_page_config(page_title="AI Assistant", page_icon="🤖", layout="wide")
+
+# Run auto-import check on page load
+check_and_perform_auto_import()
+
+# Show last imported files if they exist
+if 'last_imported_files' in st.session_state:
+    with st.expander("📥 Recently Auto-Imported Files", expanded=False):
+        for f in st.session_state['last_imported_files']:
+            st.write(f"- **{f['name']}** ({f['date']})")
 
 st.title("🤖 AI Analysis Assistant")
 st.markdown("Ask questions about your glucose data, get crash explanations, and receive personalized insights.")

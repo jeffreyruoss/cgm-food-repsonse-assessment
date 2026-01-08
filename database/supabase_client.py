@@ -183,3 +183,44 @@ def get_all_meal_ai_assessments() -> dict:
     except Exception as e:
         print(f"Error fetching meal AI assessments: {e}")
         return {}
+
+# Imported Files Tracking
+def is_file_already_imported(file_name: str, mtime: float) -> bool:
+    """Check if a file with the given name and modification time has already been imported."""
+    client = get_supabase_client()
+    if not client:
+        return False
+    try:
+        result = client.table("imported_files").select("id").eq("file_name", file_name).eq("file_mtime", mtime).execute()
+        return len(result.data) > 0
+    except Exception as e:
+        print(f"Error checking imported file: {e}")
+        return False
+
+def record_imported_file(file_name: str, mtime: float, file_type: str) -> bool:
+    """Record that a file has been successfully imported."""
+    client = get_supabase_client()
+    if not client:
+        return False
+    try:
+        client.table("imported_files").upsert({
+            "file_name": file_name,
+            "file_mtime": mtime,
+            "file_type": file_type
+        }, on_conflict="file_name,file_mtime").execute()
+        return True
+    except Exception as e:
+        print(f"Error recording imported file: {e}")
+        return False
+
+def get_recently_imported_files(limit: int = 2) -> list[dict]:
+    """Fetch the most recently imported files from the database."""
+    client = get_supabase_client()
+    if not client:
+        return []
+    try:
+        result = client.table("imported_files").select("file_name, file_mtime, imported_at").order("imported_at", desc=True).limit(limit).execute()
+        return result.data
+    except Exception as e:
+        print(f"Error fetching recently imported files: {e}")
+        return []

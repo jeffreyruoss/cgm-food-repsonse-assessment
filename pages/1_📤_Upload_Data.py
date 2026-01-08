@@ -2,9 +2,19 @@
 import streamlit as st
 import pandas as pd
 from utils import parse_libre_csv, parse_cronometer_csv, group_foods_into_meals, merge_meals_with_glucose, calculate_glucose_velocity, detect_crash_events
+from utils.auto_import import check_and_perform_auto_import
 from database import save_glucose_readings, save_food_logs, save_crash_events
 
 st.set_page_config(page_title="Upload Data", page_icon="📤", layout="wide")
+
+# Run auto-import check on page load
+check_and_perform_auto_import()
+
+# Show last imported files if they exist
+if 'last_imported_files' in st.session_state:
+    with st.expander("📥 Recently Auto-Imported Files", expanded=False):
+        for f in st.session_state['last_imported_files']:
+            st.write(f"- **{f['name']}** ({f['date']})")
 
 st.title("📤 Daily Data Upload")
 st.markdown("Upload your FreeStyle Libre CGM export and Cronometer food log at the end of each day.")
@@ -45,7 +55,7 @@ if libre_file or crono_file:
 
             with st.expander("🩸 Glucose Data Preview", expanded=True):
                 st.success(f"✅ Loaded {len(glucose_df)} glucose readings")
-                st.dataframe(glucose_df.head(20), use_container_width=True)
+                st.dataframe(glucose_df.head(20), width="stretch")
 
                 # Quick stats
                 col1, col2, col3, col4 = st.columns(4)
@@ -65,7 +75,7 @@ if libre_file or crono_file:
 
             with st.expander("🍎 Food Log Preview", expanded=True):
                 st.success(f"✅ Loaded {len(food_df)} food entries")
-                st.dataframe(food_df.head(20), use_container_width=True)
+                st.dataframe(food_df.head(20), width="stretch")
 
                 # Quick stats
                 col1, col2, col3, col4 = st.columns(4)
@@ -96,7 +106,7 @@ if libre_file and crono_file and glucose_df is not None and food_df is not None:
         with st.expander("📈 Meal-Glucose Events", expanded=True):
             display_df = merged_data[['meal_time', 'group', 'food_count', 'carbs_g', 'protein_g', 'peak_glucose']].copy()
             display_df['meal_time'] = display_df['meal_time'].dt.strftime('%Y-%m-%d %I:%M %p')
-            st.dataframe(display_df, use_container_width=True)
+            st.dataframe(display_df, width="stretch")
 
     # Show crash events
     if crash_events:
@@ -121,7 +131,7 @@ if libre_file and crono_file and glucose_df is not None and food_df is not None:
 
     # Save to database
     st.divider()
-    if st.button("💾 Save to Database", type="primary", use_container_width=True):
+    if st.button("💾 Save to Database", type="primary", width="stretch"):
         with st.spinner("Saving data..."):
             # Prepare data for Supabase - replace NaN with None for JSON compatibility
             import numpy as np

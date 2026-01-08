@@ -3,8 +3,11 @@
 A Streamlit app for analyzing Continuous Glucose Monitor (CGM) data and correlating it with food intake to detect and understand **reactive hypoglycemia** patterns.
 
 ## Production
- - URL: https://cgm-food-repsonse-assessment.streamlit.app/
+ - URL: https://cgm-food-repsonse-assessment.streamlit.app/ (invite only)
  - Dashboard: https://share.streamlit.io/
+
+ ## Github
+ https://github.com/jeffreyruoss/cgm-food-repsonse-assessment
 
 ## Features
 

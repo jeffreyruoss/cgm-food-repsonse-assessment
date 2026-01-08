@@ -126,8 +126,10 @@ def analyze_meal_response(meal_event: dict) -> dict:
     analysis = {
         'baseline_glucose': baseline,
         'peak_glucose': peak_row['glucose_mg_dl'],
+        'min_glucose': df['glucose_mg_dl'].min(),
         'glucose_rise': peak_row['glucose_mg_dl'] - baseline,
         'time_to_peak_minutes': peak_row['minutes_from_meal'],
+        'max_rise_velocity': 0,
         'max_drop_velocity': 0,
         'total_drop': 0,
         'drop_duration_minutes': None,
@@ -135,7 +137,15 @@ def analyze_meal_response(meal_event: dict) -> dict:
     }
 
     if 'velocity_smoothed' in df.columns:
-        analysis['max_drop_velocity'] = df['velocity_smoothed'].min()
+        # Get max rise velocity (before peak)
+        pre_peak = df.loc[:peak_idx]
+        if not pre_peak.empty:
+            analysis['max_rise_velocity'] = pre_peak['velocity_smoothed'].max()
+
+        # Get max drop velocity (after peak)
+        post_peak_v = df.loc[peak_idx:]
+        if not post_peak_v.empty:
+            analysis['max_drop_velocity'] = post_peak_v['velocity_smoothed'].min()
 
     # Analyze post-peak behavior
     post_peak = df.loc[peak_idx:]

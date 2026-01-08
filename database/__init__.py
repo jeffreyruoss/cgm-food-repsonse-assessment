@@ -12,6 +12,9 @@ from .supabase_client import (
     get_meal_ai_assessment,
     save_meal_ai_assessment,
     get_all_meal_ai_assessments,
+    is_file_already_imported,
+    record_imported_file,
+    get_recently_imported_files,
 )
 
 __all__ = [
@@ -27,4 +30,7 @@ __all__ = [
     "get_meal_ai_assessment",
     "save_meal_ai_assessment",
     "get_all_meal_ai_assessments",
+    "is_file_already_imported",
+    "record_imported_file",
+    "get_recently_imported_files",
 ]

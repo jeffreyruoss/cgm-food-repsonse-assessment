@@ -5,6 +5,7 @@ to detect and understand reactive hypoglycemia patterns.
 """
 import streamlit as st
 from config import SUPABASE_URL, GEMINI_API_KEY
+from utils.auto_import import check_and_perform_auto_import
 
 st.set_page_config(
     page_title="CGM Food Response Assessment",
@@ -12,6 +13,15 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# Run auto-import check on page load
+check_and_perform_auto_import()
+
+# Show last imported files if they exist
+if 'last_imported_files' in st.session_state:
+    with st.expander("📥 Recently Auto-Imported Files", expanded=False):
+        for f in st.session_state['last_imported_files']:
+            st.write(f"- **{f['name']}** ({f['date']})")
 
 st.title("🩸 CGM Food Response Assessment")
 
