@@ -9,15 +9,48 @@ from utils import calculate_glucose_velocity, detect_crash_events, get_crash_sum
 from database import get_glucose_readings, get_food_logs, get_crash_events, get_meal_ai_assessment, save_meal_ai_assessment, get_all_meal_ai_assessments
 from services.gemini_service import analyze_meal_with_ai
 from config import DANGER_ZONE_THRESHOLD
-from utils.auth import check_password
 
 st.set_page_config(page_title="Dashboard", page_icon="📊", layout="wide")
 
-# Authentication check
-if not check_password():
-    st.stop()
-
 st.title("📊 Glucose Dashboard")
+
+
+@st.cache_data(show_spinner="Fetching glucose data...")
+def get_cached_glucose():
+    """Fetch and process glucose data from database with caching."""
+    glucose_data = get_glucose_readings()
+    if not glucose_data:
+        return None
+    df = pd.DataFrame(glucose_data)
+    df['timestamp'] = pd.to_datetime(df['timestamp'])
+    # Initial velocity calculation for the whole dataset
+    return calculate_glucose_velocity(df)
+
+
+@st.cache_data(show_spinner="Fetching food logs...")
+def get_cached_food():
+    """Fetch and process food logs from database with caching."""
+    food_data = get_food_logs()
+    if not food_data:
+        return None
+    df = pd.DataFrame(food_data)
+    df['timestamp'] = pd.to_datetime(df['timestamp'])
+    # Map meal_group back to group for grouping functions
+    if 'meal_group' in df.columns:
+        df['group'] = df['meal_group']
+    elif 'group' not in df.columns:
+        df['group'] = 'Uncategorized'
+    # Add day column for grouping
+    df['day'] = df['timestamp'].dt.date
+    return df
+
+
+@st.cache_data(show_spinner="Analyzing crashes...")
+def get_cached_crashes(glucose_df):
+    """Detect crash events with caching."""
+    if glucose_df is None or glucose_df.empty:
+        return []
+    return detect_crash_events(glucose_df)
 
 
 def load_data():
@@ -28,27 +61,13 @@ def load_data():
 
     # If no session data, try loading from database
     if glucose_df is None:
-        glucose_data = get_glucose_readings()
-        if glucose_data:
-            glucose_df = pd.DataFrame(glucose_data)
-            glucose_df['timestamp'] = pd.to_datetime(glucose_df['timestamp'])
-            glucose_df = calculate_glucose_velocity(glucose_df)
+        glucose_df = get_cached_glucose()
 
     if food_df is None:
-        food_data = get_food_logs()
-        if food_data:
-            food_df = pd.DataFrame(food_data)
-            food_df['timestamp'] = pd.to_datetime(food_df['timestamp'])
-            # Map meal_group back to group for grouping functions
-            if 'meal_group' in food_df.columns:
-                food_df['group'] = food_df['meal_group']
-            elif 'group' not in food_df.columns:
-                food_df['group'] = 'Uncategorized'
-            # Add day column for grouping
-            food_df['day'] = food_df['timestamp'].dt.date
+        food_df = get_cached_food()
 
     if crash_events is None and glucose_df is not None:
-        crash_events = detect_crash_events(glucose_df)
+        crash_events = get_cached_crashes(glucose_df)
 
     return glucose_df, food_df, crash_events
 
@@ -139,6 +158,17 @@ st.divider()
 # Main glucose chart
 st.subheader("🩸 Glucose Over Time")
 
+# Performance optimization: Downsample if data is too dense (more than ~3 days of 5-min data)
+# 12 readings/hour * 24 hours * 3 days = 864 readings
+chart_df = filtered_glucose.copy()
+if len(chart_df) > 1000:
+    # Resample to 15-min intervals for the chart if many days selected
+    chart_df = chart_df.set_index('timestamp').resample('15T').agg({
+        'glucose_mg_dl': 'mean',
+        'velocity_smoothed': 'mean',
+        'is_danger_zone': 'max'
+    }).reset_index().dropna(subset=['glucose_mg_dl'])
+
 fig = make_subplots(
     rows=2, cols=1,
     shared_xaxes=True,
@@ -147,20 +177,20 @@ fig = make_subplots(
     subplot_titles=("Glucose Level", "Glucose Velocity")
 )
 
-# Glucose trace
+# Glucose trace - Use Scattergl for performance
 fig.add_trace(
-    go.Scatter(
-        x=filtered_glucose['timestamp'],
-        y=filtered_glucose['glucose_mg_dl'],
+    go.Scattergl(
+        x=chart_df['timestamp'],
+        y=chart_df['glucose_mg_dl'],
         mode='lines',
         name='Glucose',
-        line=dict(color='#1f77b4', width=1.5),
+        line=dict(color='#1f77b4', width=2),
         hovertemplate='%{x|%b %d, %I:%M %p}<br>Glucose: %{y:.0f} mg/dL<extra></extra>'
     ),
     row=1, col=1
 )
 
-# Add target range
+# Add target range (Shapes are okay if limited in number)
 fig.add_hrect(y0=70, y1=140, line_width=0, fillcolor="green", opacity=0.1, row=1, col=1)
 fig.add_hline(y=70, line_dash="dash", line_color="orange", opacity=0.5, row=1, col=1)
 fig.add_hline(y=140, line_dash="dash", line_color="orange", opacity=0.5, row=1, col=1)
@@ -184,22 +214,35 @@ if food_df is not None and not food_df.empty:
     food_mask = (food_df['timestamp'].dt.date >= start_date) & (food_df['timestamp'].dt.date <= end_date)
     filtered_food = food_df[food_mask]
 
-    for _, food in filtered_food.iterrows():
-        fig.add_vline(
-            x=food['timestamp'],
-            line_dash="dot",
-            line_color="green",
-            opacity=0.3,
+    if not filtered_food.empty:
+        # Performance optimization: Use a single trace for vertical lines instead of many add_vline calls
+        y_min = chart_df['glucose_mg_dl'].min()
+        y_max = chart_df['glucose_mg_dl'].max()
+
+        line_x = []
+        line_y = []
+        for ts in filtered_food['timestamp']:
+            line_x.extend([ts, ts, None])
+            line_y.extend([y_min, y_max, None])
+
+        fig.add_trace(
+            go.Scattergl(
+                x=line_x,
+                y=line_y,
+                mode='lines',
+                line=dict(color='green', width=1, dash='dot'),
+                opacity=0.2,
+                showlegend=False,
+                hoverinfo='skip'
+            ),
             row=1, col=1
         )
 
-    # Add scatter markers at top for food names on hover
-    if not filtered_food.empty:
-        y_max = filtered_glucose['glucose_mg_dl'].max() + 10
+        # Add scatter markers at top for food names on hover
         fig.add_trace(
-            go.Scatter(
+            go.Scattergl(
                 x=filtered_food['timestamp'],
-                y=[y_max] * len(filtered_food),
+                y=[y_max + 5] * len(filtered_food),
                 mode='markers',
                 name='Foods',
                 marker=dict(color='green', size=8, symbol='triangle-down'),
@@ -210,14 +253,14 @@ if food_df is not None and not food_df.empty:
         )
 
 # Velocity trace
-if 'velocity_smoothed' in filtered_glucose.columns:
+if 'velocity_smoothed' in chart_df.columns:
     fig.add_trace(
-        go.Scatter(
-            x=filtered_glucose['timestamp'],
-            y=filtered_glucose['velocity_smoothed'],
+        go.Scattergl(
+            x=chart_df['timestamp'],
+            y=chart_df['velocity_smoothed'],
             mode='lines',
             name='Velocity',
-            line=dict(color='purple', width=1),
+            line=dict(color='purple', width=1.5),
             hovertemplate='%{x|%b %d, %I:%M %p}<br>Velocity: %{y:.2f} mg/dL/min<extra></extra>'
         ),
         row=2, col=1
@@ -305,32 +348,10 @@ if food_df is not None and not food_df.empty:
                     # Create unique meal key for database
                     meal_key = f"{meal_time.strftime('%Y-%m-%d')}_{group_name}"
 
-                    # Calculate max drop and velocity from glucose readings
-                    max_drop_velocity = 0
-                    total_drop = 0
-                    drop_duration_minutes = None  # None means no data available
-                    if glucose_readings and len(glucose_readings) > 1:
-                        readings_df = pd.DataFrame(glucose_readings)
-                        if 'velocity_smoothed' in readings_df.columns:
-                            max_drop_velocity = readings_df['velocity_smoothed'].min()  # Most negative = fastest drop
-
-                        # Find peak and nadir for drop calculation
-                        peak_idx = readings_df['glucose_mg_dl'].idxmax()
-                        peak_glucose = readings_df.loc[peak_idx, 'glucose_mg_dl']
-                        peak_time = readings_df.loc[peak_idx, 'minutes_from_meal']
-
-                        # Find lowest point after peak
-                        post_peak = readings_df.loc[peak_idx:]
-                        if len(post_peak) > 1:
-                            nadir_idx = post_peak['glucose_mg_dl'].idxmin()
-                            nadir_glucose = readings_df.loc[nadir_idx, 'glucose_mg_dl']
-                            nadir_time = readings_df.loc[nadir_idx, 'minutes_from_meal']
-                            total_drop = peak_glucose - nadir_glucose
-                            drop_duration_minutes = nadir_time - peak_time  # Now has valid data
-                        else:
-                            # Peak is at or near end of data - can't calculate drop duration
-                            min_glucose = readings_df['glucose_mg_dl'].min()
-                            total_drop = peak_glucose - min_glucose
+                    # Extract stats from analysis
+                    max_drop_velocity = analysis.get('max_drop_velocity', 0)
+                    total_drop = analysis.get('total_drop', 0)
+                    drop_duration_minutes = analysis.get('drop_duration_minutes')
 
                     # Determine risk level and color
                     if not has_any_data:
@@ -501,9 +522,9 @@ if food_df is not None and not food_df.empty:
                                 subplot_titles=(f"Glucose Response: {group_name}", "Velocity (mg/dL/min)")
                             )
 
-                            # Glucose trace
+                            # Glucose trace - Use Scattergl
                             fig_meal.add_trace(
-                                go.Scatter(
+                                go.Scattergl(
                                     x=meal_glucose_df['minutes_from_meal'],
                                     y=meal_glucose_df['glucose_mg_dl'],
                                     mode='lines+markers',
@@ -518,7 +539,7 @@ if food_df is not None and not food_df.empty:
                             # Velocity trace if available
                             if 'velocity_smoothed' in meal_glucose_df.columns:
                                 fig_meal.add_trace(
-                                    go.Scatter(
+                                    go.Scattergl(
                                         x=meal_glucose_df['minutes_from_meal'],
                                         y=meal_glucose_df['velocity_smoothed'],
                                         mode='lines',

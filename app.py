@@ -5,11 +5,6 @@ to detect and understand reactive hypoglycemia patterns.
 """
 import streamlit as st
 from config import SUPABASE_URL, GEMINI_API_KEY
-from utils.auth import check_password
-
-# Authentication check
-if not check_password():
-    st.stop()
 
 st.set_page_config(
     page_title="CGM Food Response Assessment",

@@ -242,19 +242,23 @@ def merge_meals_with_glucose(
             })
         return pd.DataFrame(merged_events)
 
-    merged_events = []
+    import numpy as np
+
+    # Ensure glucose is sorted for efficient searching
+    glucose_df = glucose_df.sort_values('timestamp')
     latest_glucose_time = glucose_df['timestamp'].max()
 
+    merged_events = []
     for _, meal_row in meals_df.iterrows():
         meal_time = meal_row['meal_time']
+        meal_start_search = meal_time - pd.Timedelta(minutes=tolerance_minutes)
         meal_end_time = meal_time + pd.Timedelta(hours=3)
 
-        # Get glucose readings from 15 min before meal to 3 hours after
-        mask = (
-            (glucose_df['timestamp'] >= meal_time - pd.Timedelta(minutes=tolerance_minutes)) &
-            (glucose_df['timestamp'] <= meal_end_time)
-        )
-        related_glucose = glucose_df[mask].copy()
+        # Efficiently find indices using pandas searchsorted (handles Timestamp objects better than numpy)
+        start_idx = glucose_df['timestamp'].searchsorted(meal_start_search)
+        end_idx = glucose_df['timestamp'].searchsorted(meal_end_time, side='right')
+
+        related_glucose = glucose_df.iloc[start_idx:end_idx].copy()
 
         # Calculate data coverage - use overall latest glucose time to determine completeness
         data_complete = latest_glucose_time >= meal_end_time

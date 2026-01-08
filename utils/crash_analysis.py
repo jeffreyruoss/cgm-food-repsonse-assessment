@@ -54,37 +54,45 @@ def detect_crash_events(glucose_df: pd.DataFrame) -> list[dict]:
     - average_velocity
     - duration_minutes
     """
+    if glucose_df.empty:
+        return []
+
     if 'velocity_smoothed' not in glucose_df.columns:
         glucose_df = calculate_glucose_velocity(glucose_df)
 
+    # Use vectorized approach to find contiguous blocks of danger zones
+    # A crash is a group of consecutive rows where is_danger_zone is True
+    danger_mask = glucose_df['is_danger_zone'].fillna(False)
+
+    # Identify where the danger zone status changes
+    # shift(1) compares current row with previous row
+    # cumsum() creates a unique ID for each contiguous block
+    group_ids = (danger_mask != danger_mask.shift()).cumsum()
+
+    # Filter for only danger zone blocks
+    danger_blocks = glucose_df[danger_mask].copy()
+    if danger_blocks.empty:
+        return []
+
+    danger_blocks['block_id'] = group_ids[danger_mask]
+
     crashes = []
-    in_crash = False
-    crash_start_idx = None
+    # Group by block_id and extract stats
+    for _, block in danger_blocks.groupby('block_id'):
+        if len(block) >= 2:
+            start_row = block.iloc[0]
+            end_row = block.iloc[-1]
 
-    for i, row in glucose_df.iterrows():
-        if row.get('is_danger_zone', False) and not in_crash:
-            # Start of crash
-            in_crash = True
-            crash_start_idx = i
-        elif not row.get('is_danger_zone', False) and in_crash:
-            # End of crash
-            in_crash = False
-            crash_data = glucose_df.loc[crash_start_idx:i]
-
-            if len(crash_data) >= 2:
-                start_row = crash_data.iloc[0]
-                end_row = crash_data.iloc[-1]
-
-                crashes.append({
-                    'start_time': start_row['timestamp'],
-                    'end_time': end_row['timestamp'],
-                    'start_glucose': start_row['glucose_mg_dl'],
-                    'end_glucose': end_row['glucose_mg_dl'],
-                    'drop_magnitude': start_row['glucose_mg_dl'] - end_row['glucose_mg_dl'],
-                    'average_velocity': crash_data['velocity_smoothed'].mean(),
-                    'max_velocity': crash_data['velocity_smoothed'].min(),  # Most negative
-                    'duration_minutes': (end_row['timestamp'] - start_row['timestamp']).total_seconds() / 60
-                })
+            crashes.append({
+                'start_time': start_row['timestamp'],
+                'end_time': end_row['timestamp'],
+                'start_glucose': start_row['glucose_mg_dl'],
+                'end_glucose': end_row['glucose_mg_dl'],
+                'drop_magnitude': start_row['glucose_mg_dl'] - end_row['glucose_mg_dl'],
+                'average_velocity': block['velocity_smoothed'].mean(),
+                'max_velocity': block['velocity_smoothed'].min(),  # Most negative
+                'duration_minutes': (end_row['timestamp'] - start_row['timestamp']).total_seconds() / 60
+            })
 
     return crashes
 
@@ -105,7 +113,10 @@ def analyze_meal_response(meal_event: dict) -> dict:
         return {}
 
     df = pd.DataFrame(glucose_readings)
-    df = calculate_glucose_velocity(df)
+
+    # Only calculate velocity if not already present to avoid redundant work
+    if 'velocity_smoothed' not in df.columns:
+        df = calculate_glucose_velocity(df)
 
     # Find peak
     peak_idx = df['glucose_mg_dl'].idxmax()
@@ -117,11 +128,25 @@ def analyze_meal_response(meal_event: dict) -> dict:
         'peak_glucose': peak_row['glucose_mg_dl'],
         'glucose_rise': peak_row['glucose_mg_dl'] - baseline,
         'time_to_peak_minutes': peak_row['minutes_from_meal'],
+        'max_drop_velocity': 0,
+        'total_drop': 0,
+        'drop_duration_minutes': None,
+        'crash_detected': False
     }
+
+    if 'velocity_smoothed' in df.columns:
+        analysis['max_drop_velocity'] = df['velocity_smoothed'].min()
 
     # Analyze post-peak behavior
     post_peak = df.loc[peak_idx:]
     if len(post_peak) > 1:
+        # Find lowest point after peak (nadir)
+        nadir_idx = post_peak['glucose_mg_dl'].idxmin()
+        nadir_row = post_peak.loc[nadir_idx]
+
+        analysis['total_drop'] = peak_row['glucose_mg_dl'] - nadir_row['glucose_mg_dl']
+        analysis['drop_duration_minutes'] = nadir_row['minutes_from_meal'] - peak_row['minutes_from_meal']
+
         crashes = detect_crash_events(post_peak)
         if crashes:
             worst_crash = max(crashes, key=lambda x: x['drop_magnitude'])
@@ -129,8 +154,6 @@ def analyze_meal_response(meal_event: dict) -> dict:
             analysis['crash_start_minutes'] = (worst_crash['start_time'] - df.iloc[0]['timestamp']).total_seconds() / 60
             analysis['crash_magnitude'] = worst_crash['drop_magnitude']
             analysis['crash_velocity'] = worst_crash['max_velocity']
-        else:
-            analysis['crash_detected'] = False
 
     # Calculate protein to carb ratio correlation
     meal_carbs = meal_event.get('carbs_g', 0)

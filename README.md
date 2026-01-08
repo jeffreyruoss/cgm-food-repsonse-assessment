@@ -40,7 +40,20 @@ GEMINI_API_KEY=your-gemini-api-key
 ### 3. Run the app
 
 ```bash
-source .venv/bin/activate && streamlit run app.py
+## if not already activated
+source .venv/bin/activate
+
+streamlit run app.py
+
+## To stop the app
+Ctrl + C
+
+## To restart the app
+
+
+## Deactivate the virtual environment
+deactivate
+
 ```
 
 ## Project Structure
