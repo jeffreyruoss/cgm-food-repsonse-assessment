@@ -132,7 +132,7 @@ def analyze_meal_response(meal_event: dict) -> dict:
         'max_rise_velocity': 0,
         'max_drop_velocity': 0,
         'total_drop': 0,
-        'drop_duration_minutes': None,
+        'drop_duration_minutes': 0,
         'crash_detected': False
     }
 

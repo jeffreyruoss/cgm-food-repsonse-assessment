@@ -4,7 +4,7 @@
 CREATE TABLE IF NOT EXISTS imported_files (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     file_name TEXT NOT NULL,
-    file_mtime NUMERIC NOT NULL,
+    file_mtime BIGINT NOT NULL, -- milliseconds since epoch
     file_type TEXT NOT NULL, -- 'glucose' or 'food'
     imported_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(file_name, file_mtime)

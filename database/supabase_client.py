@@ -191,10 +191,16 @@ def is_file_already_imported(file_name: str, mtime: float) -> bool:
     if not client:
         return False
     try:
-        result = client.table("imported_files").select("id").eq("file_name", file_name).eq("file_mtime", mtime).execute()
+        # Use integer (milliseconds) to avoid floating point precision issues
+        mtime_ms = int(mtime * 1000)
+        result = client.table("imported_files").select("id").eq("file_name", file_name).eq("file_mtime", mtime_ms).execute()
         return len(result.data) > 0
     except Exception as e:
-        print(f"Error checking imported file: {e}")
+        error_str = str(e)
+        if "PGRST205" in error_str or "does not exist" in error_str:
+            print(f"⚠️ Table 'imported_files' missing. Please run the SQL migration.")
+        else:
+            print(f"Error checking imported file: {e}")
         return False
 
 def record_imported_file(file_name: str, mtime: float, file_type: str) -> bool:
@@ -203,9 +209,11 @@ def record_imported_file(file_name: str, mtime: float, file_type: str) -> bool:
     if not client:
         return False
     try:
+        # Use integer (milliseconds) to avoid floating point precision issues
+        mtime_ms = int(mtime * 1000)
         client.table("imported_files").upsert({
             "file_name": file_name,
-            "file_mtime": mtime,
+            "file_mtime": mtime_ms,
             "file_type": file_type
         }, on_conflict="file_name,file_mtime").execute()
         return True

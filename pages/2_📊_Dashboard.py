@@ -364,20 +364,45 @@ if food_df is not None and not food_df.empty:
                 # Sorting and Filtering UI
                 st.markdown("##### 🔍 Filter & Sort Meals")
 
-                # Risk level checkboxes - one per row for long labels
+                # Risk level checkboxes
                 st.markdown("**Risk Level Filters:**")
+                st.markdown("""
+                <div style="font-size: 0.9em; color: gray; margin-bottom: 20px;">
+                <b>Rise Velocity</b>: The fastest rate of glucose increase (mg/dL per minute). Higher values indicate faster absorption.<br>
+                <b>Rise Delta</b>: The total change from your baseline (starting) glucose to the highest peak.<br>
+                <b>Peak Glucose</b>: The maximum glucose level reached within 3 hours after eating.<br>
+                <b>Max Drop Velocity</b>: The fastest rate of glucose decline. Very fast drops can cause 'crash' symptoms.<br>
+                <b>Min Floor</b>: The lowest glucose value reached after the peak. Values below baseline indicate a reactive dip.
+                </div>
+                """, unsafe_allow_html=True)
                 selected_risks = []
 
-                if st.checkbox("🟢 **Great (Stable)**\nRise < 1.5 mg/dL/min, Delta < 30 mg/dL, Peak < 120 mg/dL, Drop < 1.0 mg/dL/min, Floor > 75 mg/dL", value=True, key="risk_great"):
-                    selected_risks.append("Great")
-                if st.checkbox("🟡 **Normal (Good)**\nRise 1.5-2.5 mg/dL/min, Delta 30-50 mg/dL, Peak 120-140 mg/dL, Drop 1.0-1.5 mg/dL/min, Floor 65-75 mg/dL", value=True, key="risk_normal"):
-                    selected_risks.append("Normal")
-                if st.checkbox("🔴 **Reactive (Bad)**\nRise > 2.5 mg/dL/min, Delta > 50 mg/dL, Peak > 140 mg/dL, Drop > 1.5 mg/dL/min, Floor < 65 mg/dL", value=True, key="risk_bad"):
-                    selected_risks.append("Reactive")
-                if st.checkbox("🔄 **Partial Data**\n< 180 min coverage (and no 'Bad' metrics detected yet)", value=True, key="risk_partial"):
-                    selected_risks.append("Partial Data")
-                if st.checkbox("⏳ **Awaiting Data**\nNo glucose readings available for this meal period yet", value=True, key="risk_await"):
-                    selected_risks.append("Awaiting Data")
+                # Helper to render styled filter
+                def render_risk_filter(label, criteria, risk_val, key):
+                    # Replace commas with spaced pipes for better digestion
+                    styled_criteria = criteria.replace(", ", " &nbsp; | &nbsp; ")
+
+                    c1, c2 = st.columns([0.05, 0.95])
+                    with c1:
+                        checked = st.checkbox("", value=True, key=key, label_visibility="collapsed")
+                    with c2:
+                        st.markdown(f"{label}")
+                        st.markdown(f"<p style='margin-top: -15px; color: gray; font-size: 1em;'>{styled_criteria}</p>", unsafe_allow_html=True)
+                    return checked
+
+                # Define the filters
+                filters = [
+                    ("🟢 **Great (Stable)**", "Rise < 1.5 mg/dL/min, Delta < 30 mg/dL, Peak < 120 mg/dL, Drop < 1.0 mg/dL/min, Floor > 75 mg/dL", "Great", "risk_great"),
+                    ("🟡 **Normal (Good)**", "Rise 1.5-2.5 mg/dL/min, Delta 30-50 mg/dL, Peak 120-140 mg/dL, Drop 1.0-1.5 mg/dL/min, Floor 65-75 mg/dL", "Normal", "risk_normal"),
+                    ("🔴 **Reactive (Bad)**", "Rise > 2.5 mg/dL/min, Delta > 50 mg/dL, Peak > 140 mg/dL, Drop > 1.5 mg/dL/min, Floor < 65 mg/dL", "Reactive", "risk_bad"),
+                    ("🔄 **Partial Data**", "< 180 min coverage (and no 'Bad' metrics detected yet)", "Partial Data", "risk_partial"),
+                    ("⏳ **Awaiting Data**", "No glucose readings available for this meal period yet", "Awaiting Data", "risk_await")
+                ]
+
+                # Render filters and collect selections
+                for label, criteria, val, key in filters:
+                    if render_risk_filter(label, criteria, val, key):
+                        selected_risks.append(val)
 
                 if not selected_risks:
                     st.warning("⚠️ No risk levels selected. Filtered results will be empty.")
@@ -528,74 +553,77 @@ if food_df is not None and not food_df.empty:
                                             time_str = food_time.strftime('%I:%M %p').lstrip('0')
                                         else:
                                             time_str = str(food_time)
-                                        st.markdown(f"• **{time_str}** - {food_item['name']}")
+                                        # Distinct colors for time and food, no bullets
+                                        st.markdown(f":gray[{time_str}] **{food_item['name']}**")
                             else:
                                 # Fallback to simple list if no timestamps available
                                 foods_list = meal.get('foods', [])
                                 if foods_list:
                                     st.markdown(f"**Foods:** {', '.join(foods_list)}")
 
-                            col1, col2, col3, col4 = st.columns(4)
+                            # Summary Statistics Row
+                            st.markdown("---")
+                            mcol1, mcol2, mcol3, mcol4 = st.columns(4)
 
-                        with col1:
-                            st.markdown("**📈 Rise**")
-                            if has_any_data:
-                                # Get values
-                                peak = analysis.get('peak_glucose', 0)
-                                rise_delta = analysis.get('glucose_rise', 0)
-                                rise_vel = analysis.get('max_rise_velocity', 0)
+                            with mcol1:
+                                st.markdown("##### 📈 Rise Analysis")
+                                if has_any_data:
+                                    peak = analysis.get('peak_glucose') or 0
+                                    rise_delta = analysis.get('glucose_rise') or 0
+                                    rise_vel = analysis.get('max_rise_velocity') or 0
+                                    rise_dur = analysis.get('time_to_peak_minutes') or 0
 
-                                # Determine colors
-                                peak_color = "red" if peak > 140 else "orange" if peak >= 120 else "green"
-                                delta_color = "red" if rise_delta > 50 else "orange" if rise_delta >= 30 else "green"
-                                vel_color = "red" if rise_vel > 2.5 else "orange" if rise_vel >= 1.5 else "green"
+                                    peak_color = "red" if peak > 140 else "orange" if peak >= 120 else "green"
+                                    delta_color = "red" if rise_delta > 50 else "orange" if rise_delta >= 30 else "green"
+                                    vel_color = "red" if rise_vel > 2.5 else "orange" if rise_vel >= 1.5 else "green"
 
-                                st.markdown(f"**Peak**: :{peak_color}[{peak:.0f} mg/dL]")
-                                st.markdown(f"**Rise Delta**: :{delta_color}[+{rise_delta:.0f} mg/dL]")
-                                st.markdown(f"**Rise Velocity**: :{vel_color}[{rise_vel:.2f} mg/dL/min]")
-                                st.metric("Duration of Rise", f"{analysis.get('time_to_peak_minutes', 0):.0f} min")
-                            else:
-                                st.metric("Peak", "—")
-                                st.metric("Rise Velocity", "—")
-                                st.metric("Duration of Rise", "—")
+                                    st.markdown(f"Peak: **:{peak_color}[{peak:.0f} mg/dL]**")
+                                    st.markdown(f"Rise Delta: **:{delta_color}[+{rise_delta:.0f} mg/dL]**")
+                                    st.markdown(f"Rise Velocity: **:{vel_color}[{rise_vel:.2f} mg/dL/min]**")
+                                    st.markdown(f"Duration: **{rise_dur:.0f} min**")
+                                else:
+                                    st.markdown("No data available")
 
-                        with col2:
-                            st.markdown("**📉 Drop**")
-                            if has_any_data:
-                                # Get values
-                                floor = analysis.get('min_glucose', 0)
-                                drop_vel = abs(analysis.get('max_drop_velocity', 0))
-                                total_drop = analysis.get('total_drop', 0)
+                            with mcol2:
+                                st.markdown("##### 📉 Drop Analysis")
+                                if has_any_data:
+                                    floor = analysis.get('min_glucose') or 0
+                                    drop_vel = abs(analysis.get('max_drop_velocity') or 0)
+                                    total_drop = analysis.get('total_drop') or 0
+                                    drop_dur = analysis.get('drop_duration_minutes') or 0
 
-                                # Determine colors
-                                floor_color = "red" if floor < 65 else "orange" if floor <= 75 else "green"
-                                drop_vel_color = "red" if drop_vel > 1.5 else "orange" if drop_vel >= 1.0 else "green"
+                                    floor_color = "red" if floor < 65 else "orange" if floor <= 75 else "green"
+                                    drop_vel_color = "red" if drop_vel > 1.5 else "orange" if drop_vel >= 1.0 else "green"
 
-                                st.markdown(f"**Min Floor**: :{floor_color}[{floor:.0f} mg/dL]")
-                                st.markdown(f"**Max Drop Velocity**: :{drop_vel_color}[{drop_vel:.2f} mg/dL/min]")
-                                st.markdown(f"**Total Drop**: {total_drop:.0f} mg/dL")
-                                if analysis.get('drop_duration_minutes'):
-                                    st.metric("Duration of Drop", f"{analysis.get('drop_duration_minutes', 0):.0f} min")
-                            else:
-                                st.metric("Min Floor", "—")
-                                st.metric("Max Drop Velocity", "—")
-                                st.metric("Total Drop", "—")
+                                    st.markdown(f"Min Floor: **:{floor_color}[{floor:.0f} mg/dL]**")
+                                    st.markdown(f"Max Drop Vel: **:{drop_vel_color}[{drop_vel:.2f} mg/dL/min]**")
+                                    st.markdown(f"Total Drop: **{total_drop:.0f} mg/dL**")
+                                    st.markdown(f"Duration: **{drop_dur:.0f} min**")
+                                else:
+                                    st.markdown("No data available")
 
-                            with col3:
-                                st.markdown("**🍎 Macros**")
-                                st.metric("Carbs", f"{meal.get('carbs_g', 0):.1f}g")
-                                st.metric("Protein", f"{meal.get('protein_g', 0):.1f}g")
-                                st.metric("Fat", f"{meal.get('fat_g', 0):.1f}g")
+                            with mcol3:
+                                st.markdown("##### 🍎 Macros")
+                                st.markdown(f"Carbs: **{meal.get('carbs_g', 0):.1f}g**")
+                                st.markdown(f"Protein: **{meal.get('protein_g', 0):.1f}g**")
+                                st.markdown(f"Fat: **{meal.get('fat_g', 0):.1f}g**")
+                                st.markdown(f"Calories: **{meal.get('calories', 0):.0f} kcal**")
 
-                            with col4:
-                                st.markdown("**📊 Ratios**")
+                            with mcol4:
+                                st.markdown("##### 📊 Ratios & More")
                                 carbs = meal.get('carbs_g', 0)
                                 protein = meal.get('protein_g', 0)
                                 fiber = meal.get('fiber_g', 0)
+                                sugar = meal.get('sugar_g', 0)
                                 p_c_ratio = protein / carbs if carbs > 0 else 0
-                                st.metric("P:C Ratio", f"{p_c_ratio:.2f}")
-                                st.metric("Fiber", f"{fiber:.1f}g")
-                                st.metric("Sugar", f"{meal.get('sugar_g', 0):.1f}g")
+
+                                fiber_color = "green" if fiber >= 5 else "orange" if fiber >= 2 else "gray"
+                                sugar_color = "red" if sugar > 15 else "orange" if sugar > 5 else "green"
+
+                                st.markdown(f"P:C Ratio: **{p_c_ratio:.2f}**")
+                                st.markdown(f"Fiber: **:{fiber_color}[{fiber:.1f}g]**")
+                                st.markdown(f"Sugar: **:{sugar_color}[{sugar:.1f}g]**")
+                                st.markdown(f"Food Items: **{food_count}**")
 
                             # AI Assessment Section (only show if we have glucose data)
                             if has_any_data:

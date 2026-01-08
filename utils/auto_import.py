@@ -28,7 +28,13 @@ from database import (
 def get_latest_file(directory: str, pattern: str) -> str | None:
     """Find the most recently modified file matching the pattern in the directory."""
     expanded_dir = os.path.expanduser(directory)
-    search_pattern = os.path.join(expanded_dir, f"*{pattern}*.csv")
+    # If pattern already ends with .csv, don't add it again
+    if not pattern.endswith('.csv'):
+        filename_pattern = f"*{pattern}*.csv"
+    else:
+        filename_pattern = f"*{pattern}*"
+
+    search_pattern = os.path.join(expanded_dir, filename_pattern)
     files = glob.glob(search_pattern)
 
     if not files:
@@ -156,13 +162,17 @@ def check_and_perform_auto_import():
             mtime = os.path.getmtime(glucose_file)
             if not is_file_already_imported(os.path.basename(glucose_file), mtime):
                 files_to_import.append(('glucose', glucose_file, mtime))
-                print(f"[{datetime.now().strftime('%H:%M:%S')}] ✨ Found new glucose file: {os.path.basename(glucose_file)}")
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] ✨ Found new glucose file: {os.path.basename(glucose_file)} (mtime: {mtime})")
+            else:
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] ℹ️ Skipping already imported glucose file: {os.path.basename(glucose_file)}")
 
         if food_file:
             mtime = os.path.getmtime(food_file)
             if not is_file_already_imported(os.path.basename(food_file), mtime):
                 files_to_import.append(('food', food_file, mtime))
-                print(f"[{datetime.now().strftime('%H:%M:%S')}] ✨ Found new food file: {os.path.basename(food_file)}")
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] ✨ Found new food file: {os.path.basename(food_file)} (mtime: {mtime})")
+            else:
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] ℹ️ Skipping already imported food file: {os.path.basename(food_file)}")
 
         if files_to_import:
             status.update(label="🚀 Importing new data files...", state="running", expanded=True)
@@ -174,13 +184,20 @@ def check_and_perform_auto_import():
 
             if imported_results:
                 # Record in database only the ones that were successfully saved
+                recorded_count = 0
                 for result in imported_results:
                     # Find the mtime from our files_to_import list
                     mtime = next((mt for f_type, path, mt in files_to_import if f_type == result['type']), 0)
-                    record_imported_file(result['name'], mtime, result['type'])
-                    print(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Successfully imported: {result['name']}")
+                    if record_imported_file(result['name'], mtime, result['type']):
+                        recorded_count += 1
+                        print(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Successfully imported: {result['name']}")
+                    else:
+                        print(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ Failed to record import for: {result['name']}")
 
                 st.session_state['last_imported_files'] = imported_results
+
+                if recorded_count < len(imported_results):
+                    st.error("⚠️ Data was imported but the record could not be saved to the database. This may cause re-imports next time. Please ensure the `imported_files` table exists.")
 
                 success_msg = "✅ Auto-imported data:\n"
                 for f in imported_results:
@@ -200,7 +217,7 @@ def check_and_perform_auto_import():
                 st.session_state['last_imported_files'] = [
                     {
                         'name': f['file_name'],
-                        'date': datetime.fromtimestamp(f['file_mtime']).strftime('%Y-%m-%d %H:%M')
+                        'date': datetime.fromtimestamp(f['file_mtime'] / 1000).strftime('%Y-%m-%d %H:%M')
                     }
                     for f in db_recent
                 ]
