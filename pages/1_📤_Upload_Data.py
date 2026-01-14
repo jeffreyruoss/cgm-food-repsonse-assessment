@@ -2,19 +2,7 @@
 import streamlit as st
 import pandas as pd
 from utils import parse_libre_csv, parse_cronometer_csv, group_foods_into_meals, merge_meals_with_glucose, calculate_glucose_velocity, detect_crash_events
-from utils.auto_import import check_and_perform_auto_import
 from database import save_glucose_readings, save_food_logs, save_crash_events
-
-st.set_page_config(page_title="Upload Data", page_icon="📤", layout="wide")
-
-# Run auto-import check on page load
-check_and_perform_auto_import()
-
-# Show last imported files if they exist
-if 'last_imported_files' in st.session_state:
-    with st.expander("📥 Recently Auto-Imported Files", expanded=False):
-        for f in st.session_state['last_imported_files']:
-            st.write(f"- **{f['name']}** ({f['date']})")
 
 st.title("📤 Daily Data Upload")
 st.markdown("Upload your FreeStyle Libre CGM export and Cronometer food log at the end of each day.")

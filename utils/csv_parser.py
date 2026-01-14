@@ -50,8 +50,9 @@ def parse_libre_csv(file_content: str) -> pd.DataFrame:
             raise ValueError("Could not identify timestamp or glucose columns")
 
         # Create standardized dataframe
+        # Libre format: "01-02-2026 11:40 PM" (MM-DD-YYYY HH:MM AM/PM)
         result = pd.DataFrame({
-            'timestamp': pd.to_datetime(df[timestamp_col], dayfirst=False, errors='coerce'),
+            'timestamp': pd.to_datetime(df[timestamp_col], format='%m-%d-%Y %I:%M %p', errors='coerce'),
             'glucose_mg_dl': pd.to_numeric(df[glucose_col], errors='coerce')
         })
 
@@ -82,14 +83,23 @@ def parse_cronometer_csv(file_content: str) -> pd.DataFrame:
         df.columns = df.columns.str.strip().str.lower().str.replace(' ', '_')
 
         # Find and combine date/time columns
+        # Cronometer format: Day="2026-01-08", Time="11:00 AM"
         if 'day' in df.columns and 'time' in df.columns:
-            df['timestamp'] = pd.to_datetime(df['day'] + ' ' + df['time'], dayfirst=False, errors='coerce')
-            df['day'] = pd.to_datetime(df['day'], dayfirst=False, errors='coerce').dt.date
+            df['timestamp'] = pd.to_datetime(
+                df['day'] + ' ' + df['time'],
+                format='%Y-%m-%d %I:%M %p',
+                errors='coerce'
+            )
+            df['day'] = pd.to_datetime(df['day'], format='%Y-%m-%d', errors='coerce').dt.date
         elif 'date' in df.columns and 'time' in df.columns:
-            df['timestamp'] = pd.to_datetime(df['date'] + ' ' + df['time'], dayfirst=False, errors='coerce')
-            df['day'] = pd.to_datetime(df['date'], dayfirst=False, errors='coerce').dt.date
+            df['timestamp'] = pd.to_datetime(
+                df['date'] + ' ' + df['time'],
+                format='%Y-%m-%d %I:%M %p',
+                errors='coerce'
+            )
+            df['day'] = pd.to_datetime(df['date'], format='%Y-%m-%d', errors='coerce').dt.date
         elif 'timestamp' in df.columns:
-            df['timestamp'] = pd.to_datetime(df['timestamp'], dayfirst=False, errors='coerce')
+            df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
             df['day'] = df['timestamp'].dt.date
         else:
             raise ValueError("Could not identify date/time columns")
@@ -131,6 +141,13 @@ def parse_cronometer_csv(file_content: str) -> pd.DataFrame:
                 break
 
         result = pd.DataFrame(result_data)
+
+        # Drop rows with missing timestamps (entries without a time in Cronometer)
+        null_count = result['timestamp'].isna().sum()
+        if null_count > 0:
+            print(f"Warning: Dropping {null_count} food entries with missing timestamps")
+        result = result.dropna(subset=['timestamp'])
+
         result = result.sort_values('timestamp').reset_index(drop=True)
 
         return result

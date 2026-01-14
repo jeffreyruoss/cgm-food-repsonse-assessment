@@ -117,65 +117,26 @@ CREATE TABLE IF NOT EXISTS meal_ai_assessments (
 CREATE INDEX IF NOT EXISTS idx_meal_assessment_time ON meal_ai_assessments(meal_time);
 CREATE INDEX IF NOT EXISTS idx_meal_assessment_key ON meal_ai_assessments(meal_key);
 
--- Enable Row Level Security (RLS) - optional but recommended
--- Uncomment these if you want to add user authentication later
+-- ============================================================================
+-- Row Level Security (RLS)
+-- ============================================================================
+-- RLS is enabled on all tables for security compliance with Supabase best practices.
+-- Permissive policies allow full access for single-user app using anon key.
+-- For multi-user support, replace these with auth.uid() based policies.
 
--- ALTER TABLE glucose_readings ENABLE ROW LEVEL SECURITY;
--- ALTER TABLE food_logs ENABLE ROW LEVEL SECURITY;
--- ALTER TABLE crash_events ENABLE ROW LEVEL SECURITY;
--- ALTER TABLE chat_history ENABLE ROW LEVEL SECURITY;
--- ALTER TABLE user_symptoms ENABLE ROW LEVEL SECURITY;
+ALTER TABLE glucose_readings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE food_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE crash_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE chat_history ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_symptoms ENABLE ROW LEVEL SECURITY;
+ALTER TABLE meal_ai_assessments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE imported_files ENABLE ROW LEVEL SECURITY;
 
--- Create policies for authenticated users
--- CREATE POLICY "Users can view own data" ON glucose_readings FOR SELECT USING (auth.role() = 'authenticated');
--- CREATE POLICY "Users can insert own data" ON glucose_readings FOR INSERT WITH CHECK (auth.role() = 'authenticated');
-
--- Helpful views
-
--- View: Daily glucose summary
-CREATE OR REPLACE VIEW daily_glucose_summary AS
-SELECT
-    DATE(timestamp) as date,
-    MIN(glucose_mg_dl) as min_glucose,
-    MAX(glucose_mg_dl) as max_glucose,
-    AVG(glucose_mg_dl) as avg_glucose,
-    STDDEV(glucose_mg_dl) as glucose_variability,
-    COUNT(*) as reading_count,
-    SUM(CASE WHEN glucose_mg_dl < 70 THEN 1 ELSE 0 END) as low_count,
-    SUM(CASE WHEN glucose_mg_dl > 140 THEN 1 ELSE 0 END) as high_count,
-    SUM(CASE WHEN is_danger_zone THEN 1 ELSE 0 END) as danger_zone_count
-FROM glucose_readings
-GROUP BY DATE(timestamp)
-ORDER BY date DESC;
-
--- View: Daily macro summary
-CREATE OR REPLACE VIEW daily_macro_summary AS
-SELECT
-    DATE(timestamp) as date,
-    SUM(calories) as total_calories,
-    SUM(protein_g) as total_protein,
-    SUM(carbs_g) as total_carbs,
-    SUM(fat_g) as total_fat,
-    SUM(fiber_g) as total_fiber,
-    SUM(sugar_g) as total_sugar,
-    COUNT(*) as meal_count
-FROM food_logs
-GROUP BY DATE(timestamp)
-ORDER BY date DESC;
-
--- View: Crash event summary with related food
-CREATE OR REPLACE VIEW crash_summary AS
-SELECT
-    ce.id,
-    ce.start_time,
-    ce.end_time,
-    ce.drop_magnitude,
-    ce.max_velocity,
-    ce.duration_minutes,
-    fl.food_name as potential_trigger,
-    fl.carbs_g,
-    fl.protein_g,
-    fl.sugar_g
-FROM crash_events ce
-LEFT JOIN food_logs fl ON fl.timestamp BETWEEN (ce.start_time - INTERVAL '3 hours') AND ce.start_time
-ORDER BY ce.start_time DESC;
+-- Single-user permissive policies
+CREATE POLICY "Allow all operations on glucose_readings" ON glucose_readings FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all operations on food_logs" ON food_logs FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all operations on crash_events" ON crash_events FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all operations on chat_history" ON chat_history FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all operations on user_symptoms" ON user_symptoms FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all operations on meal_ai_assessments" ON meal_ai_assessments FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all operations on imported_files" ON imported_files FOR ALL USING (true) WITH CHECK (true);

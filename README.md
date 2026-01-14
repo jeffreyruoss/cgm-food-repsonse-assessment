@@ -51,7 +51,8 @@ streamlit run app.py
 ## To stop the app
 Ctrl + C
 
-## To restart the app
+##  Local URL: http://localhost:8501
+##  Network URL: http://10.100.0.2:8501
 
 
 ## Deactivate the virtual environment

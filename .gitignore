@@ -33,3 +33,4 @@ build/
 
 # Sample data (optional - remove if you want to include sample data)
 # sample-data/
+data/import/

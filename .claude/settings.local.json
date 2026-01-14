@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls:*)",
+      "Bash(source .venv/bin/activate)",
+      "Bash(python3:*)",
+      "Bash(pkill:*)",
+      "Bash(supabase db push:*)",
+      "Bash(supabase db diff:*)"
+    ]
+  }
+}

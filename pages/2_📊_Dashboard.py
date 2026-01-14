@@ -6,21 +6,9 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 from utils import calculate_glucose_velocity, detect_crash_events, get_crash_summary_stats, group_foods_into_meals, merge_meals_with_glucose, analyze_meal_response
-from utils.auto_import import check_and_perform_auto_import
 from database import get_glucose_readings, get_food_logs, get_crash_events, get_meal_ai_assessment, save_meal_ai_assessment, get_all_meal_ai_assessments
 from services.gemini_service import analyze_meal_with_ai
 from config import DANGER_ZONE_THRESHOLD
-
-st.set_page_config(page_title="Dashboard", page_icon="📊", layout="wide")
-
-# Run auto-import check on page load
-check_and_perform_auto_import()
-
-# Show last imported files if they exist
-if 'last_imported_files' in st.session_state:
-    with st.expander("📥 Recently Auto-Imported Files", expanded=False):
-        for f in st.session_state['last_imported_files']:
-            st.write(f"- **{f['name']}** ({f['date']})")
 
 st.title("📊 Glucose Dashboard")
 
@@ -364,44 +352,110 @@ if food_df is not None and not food_df.empty:
                 # Sorting and Filtering UI
                 st.markdown("##### 🔍 Filter & Sort Meals")
 
+# Pre-calculate counts for each risk category
+                risk_counts = {
+                    "Great": sum(1 for a in meal_analyses.values() if a['risk_category'] == "Great"),
+                    "Normal": sum(1 for a in meal_analyses.values() if a['risk_category'] == "Normal"),
+                    "Reactive": sum(1 for a in meal_analyses.values() if a['risk_category'] == "Reactive"),
+                    "Partial Data": sum(1 for a in meal_analyses.values() if a['risk_category'] == "Partial Data"),
+                    "Awaiting Data": sum(1 for a in meal_analyses.values() if a['risk_category'] == "Awaiting Data"),
+                }
+
                 # Risk level checkboxes
                 st.markdown("**Risk Level Filters:**")
-                st.markdown("""
-                <div style="font-size: 0.9em; color: gray; margin-bottom: 20px;">
-                <b>Rise Velocity</b>: The fastest rate of glucose increase (mg/dL per minute). Higher values indicate faster absorption.<br>
-                <b>Rise Delta</b>: The total change from your baseline (starting) glucose to the highest peak.<br>
-                <b>Peak Glucose</b>: The maximum glucose level reached within 3 hours after eating.<br>
-                <b>Max Drop Velocity</b>: The fastest rate of glucose decline. Very fast drops can cause 'crash' symptoms.<br>
-                <b>Min Floor</b>: The lowest glucose value reached after the peak. Values below baseline indicate a reactive dip.
-                </div>
-                """, unsafe_allow_html=True)
+
+                st.html("""
+                    <div style="font-size: 0.9em; color: gray; margin-bottom: 20px;">
+                        <b>Rise Velocity</b>: The fastest rate of glucose increase (mg/dL per minute). Higher values indicate faster absorption.<br>
+                        <b>Rise Delta</b>: The total change from your baseline (starting) glucose to the highest peak.<br>
+                        <b>Peak Glucose</b>: The maximum glucose level reached within 3 hours after eating.<br>
+                        <b>Max Drop Velocity</b>: The fastest rate of glucose decline. Very fast drops can cause 'crash' symptoms.<br>
+                        <b>Min Floor</b>: The lowest glucose value reached after the peak. Values below baseline indicate a reactive dip.
+                    </div>
+                """)
                 selected_risks = []
 
                 # Helper to render styled filter
-                def render_risk_filter(label, criteria, risk_val, key):
+                def render_risk_filter(label, criteria, risk_val, key, count):
                     # Replace commas with spaced pipes for better digestion
                     styled_criteria = criteria.replace(", ", " &nbsp; | &nbsp; ")
+                    is_disabled = count == 0
 
-                    c1, c2 = st.columns([0.05, 0.95])
-                    with c1:
-                        checked = st.checkbox("", value=True, key=key, label_visibility="collapsed")
-                    with c2:
-                        st.markdown(f"{label}")
-                        st.markdown(f"<p style='margin-top: -15px; color: gray; font-size: 1em;'>{styled_criteria}</p>", unsafe_allow_html=True)
+                    circle_css = (
+                        f"display: inline-flex; "
+                        f"align-items: center; "
+                        f"justify-content: center; "
+                        f"width: 20px; "
+                        f"height: 20px; "
+                        f"border-radius: 50%; "
+                        f"background-color: {'#555' if is_disabled else '#2e86de'}; "
+                        f"color: white; "
+                        f"font-size: 10px; "
+                        f"font-weight: bold; "
+                        f"margin-right: 8px; "
+                        f"flex-shrink: 0; "
+                    )
+                    circle_html = f'<span style="{circle_css}">{count}</span>'
+                    content_style = f"opacity: 0.4; pointer-events: none;" if is_disabled else ""
+
+                    with st.container(border=True):
+                        # Inject CSS to specifically pull up the checkbox component
+                        st.markdown("""
+                            <style>
+                                [data-testid="stVerticalBlockBorderWrapper"] > div {
+                                    padding-top: 12px !important;
+                                    padding-bottom: 12px !important;
+                                }
+                                [data-testid="stCheckbox"] {
+                                    margin-top: -6px !important;
+                                }
+                                [data-testid="stHorizontalBlock"] {
+                                    align-items: start !important;
+                                }
+                                [data-testid="stVerticalBlock"] {
+                                    gap: 0.8rem !important;
+                                }
+                            </style>
+                        """, unsafe_allow_html=True)
+
+                        # Tighter column layout
+                        col_check, col_content = st.columns([0.05, 0.95])
+
+                        with col_check:
+                            checked = st.checkbox(
+                                f"cb_{key}",
+                                value=(True if not is_disabled else False),
+                                key=key,
+                                label_visibility="collapsed",
+                                disabled=is_disabled
+                            )
+
+                        with col_content:
+                            st.html(
+                                f'<div style="display: flex; align-items: flex-start; gap: 4px; {content_style}">'
+                                f'{circle_html}'
+                                f'<div style="flex: 1;">'
+                                f'<div style="display: flex; align-items: center; gap: 8px; margin-bottom: 2px;">'
+                                f'<div style="font-weight: bold; font-size: 1.05em; line-height: 1.2;">{label}</div>'
+                                f'</div>'
+                                f'<div style="color: gray; font-size: 0.9em; line-height: 1.4;">{styled_criteria}</div>'
+                                f'</div></div>'
+                            )
                     return checked
 
                 # Define the filters
                 filters = [
-                    ("🟢 **Great (Stable)**", "Rise < 1.5 mg/dL/min, Delta < 30 mg/dL, Peak < 120 mg/dL, Drop < 1.0 mg/dL/min, Floor > 75 mg/dL", "Great", "risk_great"),
-                    ("🟡 **Normal (Good)**", "Rise 1.5-2.5 mg/dL/min, Delta 30-50 mg/dL, Peak 120-140 mg/dL, Drop 1.0-1.5 mg/dL/min, Floor 65-75 mg/dL", "Normal", "risk_normal"),
-                    ("🔴 **Reactive (Bad)**", "Rise > 2.5 mg/dL/min, Delta > 50 mg/dL, Peak > 140 mg/dL, Drop > 1.5 mg/dL/min, Floor < 65 mg/dL", "Reactive", "risk_bad"),
-                    ("🔄 **Partial Data**", "< 180 min coverage (and no 'Bad' metrics detected yet)", "Partial Data", "risk_partial"),
-                    ("⏳ **Awaiting Data**", "No glucose readings available for this meal period yet", "Awaiting Data", "risk_await")
+                    ("🟢 Great (Stable)", "Rise < 1.5 mg/dL/min, Delta < 30 mg/dL, Peak < 120 mg/dL, Drop < 1.0 mg/dL/min, Floor > 75 mg/dL", "Great", "risk_great"),
+                    ("🟡 Normal (Good)", "Rise 1.5-2.5 mg/dL/min, Delta 30-50 mg/dL, Peak 120-140 mg/dL, Drop 1.0-1.5 mg/dL/min, Floor 65-75 mg/dL", "Normal", "risk_normal"),
+                    ("🔴 Reactive (Bad)", "Rise > 2.5 mg/dL/min, Delta > 50 mg/dL, Peak > 140 mg/dL, Drop > 1.5 mg/dL/min, Floor < 65 mg/dL", "Reactive", "risk_bad"),
+                    ("🔄 Partial Data", "< 180 min coverage (and no 'Bad' metrics detected yet)", "Partial Data", "risk_partial"),
+                    ("⏳ Awaiting Data", "No glucose readings available for this meal period yet", "Awaiting Data", "risk_await")
                 ]
 
                 # Render filters and collect selections
                 for label, criteria, val, key in filters:
-                    if render_risk_filter(label, criteria, val, key):
+                    count = risk_counts.get(val, 0)
+                    if render_risk_filter(label, criteria, val, key, count):
                         selected_risks.append(val)
 
                 if not selected_risks:

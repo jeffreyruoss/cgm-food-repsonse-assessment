@@ -4,19 +4,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 from services import generate_doctor_report, save_report_to_file
 from utils import get_crash_summary_stats
-from utils.auto_import import check_and_perform_auto_import
 from database import get_crash_events, get_glucose_readings, get_food_logs
-
-st.set_page_config(page_title="Doctor's Report", page_icon="📋", layout="wide")
-
-# Run auto-import check on page load
-check_and_perform_auto_import()
-
-# Show last imported files if they exist
-if 'last_imported_files' in st.session_state:
-    with st.expander("📥 Recently Auto-Imported Files", expanded=False):
-        for f in st.session_state['last_imported_files']:
-            st.write(f"- **{f['name']}** ({f['date']})")
 
 st.title("📋 Doctor's Note Export")
 st.markdown("Generate a professional PDF summary for your physician.")
